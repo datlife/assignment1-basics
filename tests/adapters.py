@@ -591,52 +591,57 @@ def run_train_bpe(
                 Merges are ordered by order of creation.
     """
 
+    def pre_tokenize_corpous():
+        bytes_arr = []
+        # Pre-tokenize corpus
+        # convert corpus into pre-tokens and represented each pre-token as a sequence of UTF-8 byes
+        pat = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        with open(input_path, encoding="utf-8") as f:
+            for line in f.readlines():
+                # .split(" ")) is naive
+                # pre-tokenize using OpenAI regex
+                bytes_arr += [w.string.encode("utf-8") for w in re.finditer(pat, string=line)]
+        
     import collections
-    def get_stats(array_of_bytes):
+    def computes_bpe_merge(array_of_bytes):
         """Given a array of bytes words, return a dictionary of pair statistics
         where keys are pairs and values are their frequencies in the corpus.
+
+        NOTE: When computing merges, deterministically break ties in pair frequency by 
+        preferring the lexicographically greater pair.
+        For example, if the pairs (“A”, “B”), (“A”, “C”), (“B”, “ZZ”), and (“BA”, “A”) all have the highest frequency, 
+        we’d merge (“BA”, “A”)
         """
         counters = {}
         for pair_of_bytes in zip(array_of_bytes, array_of_bytes[1:]):
-            if pair_of_bytes in counters:
-                counters[pair_of_bytes] += 1
-            else:
-                counters[pair_of_bytes] = 1
-        
-        counters = collections.Counter(counters)
-        # When computing merges, deterministically break ties in pair frequency by 
-        # preferring the lexicographically greater pair. 
-        # For example, if the pairs (“A”, “B”), (“A”, “C”), (“B”, “ZZ”), and (“BA”, “A”) all have the highest frequency, 
-        # we’d merge (“BA”, “A”):
-        return counters
+            counters[pair_of_bytes] = counters.get(pair_of_bytes, 0) + 1
 
-    def computes_bpe_merge(array_of_bytes):
-        new_merge = ()
-        return new_merge
+        # sort to find pairs with highest frequency
+
+        # sort by lexicographically greater pair to find the common one
+        c = collections.Counter(counters)
+        return c
+
+ 
 
     def update_vocabs(words, pair):
         return words
     
 
-    bytes_arr = []
-    # Pre-tokenize corpus
-    # convert corpus into pre-tokens and represented each pre-token as a sequence of UTF-8 byes
-    pat = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-    with open(input_path, encoding="utf-8") as f:
-        for line in f.readlines():
-            # .split(" ")) is naive
-            # pre-tokenize using OpenAI regex
-            bytes_arr += [w.string.encode("utf-8") for w in re.finditer(pat, string=line)]
-    
+    arr_bytes = pre_tokenize_corpous()
     vocabs = {} # int --> bytes
     merges = [] # tuple(bytes, bytes) -->
     while len(vocabs) < vocab_size - len(special_tokens):
-        merge_candidate = computes_bpe_merge(array_of_bytes=bytes_arr)
-        if not pair_stats:
+        merge_candidate = computes_bpe_merge(array_of_bytes=arr_bytes)
+        if not merge_candidate:
             break
         merge_candidate = ()
 
         merges.append(merge_candidate)
-        words = update_vocabs(words, merge_candidate)
+        arr_bytes = update_vocabs(arr_bytes, merge_candidate)
 
-    return vocabs, merge
+    # Update special tokens
+    for i in range(len(special_tokens)):
+        vocabs[len(vocabs) + i + 1] = special_tokens[i].encode("utf-8")
+
+    return vocabs, merges
