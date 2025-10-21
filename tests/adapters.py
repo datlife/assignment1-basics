@@ -589,4 +589,32 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    raise NotImplementedError
+
+    arr = []
+    # convert corpus into array of bytes words
+    with open(input_path, encoding="utf-8") as f:
+        for line in f.readlines():
+            arr += line.rstrip().split(" "))
+    
+    # train step
+    def get_stats(words):
+        """Given a array of bytes words, return a dictionary of pair statistics
+        where keys are pairs and values are their frequencies in the corpus.
+        """
+        common_pair = {}
+        return common_pair
+
+    def update_vocabs(words, pair):
+        return words
+    vocabs = {} # int --> bytes
+    merges = [] # tuple(bytes, bytes) -->
+    while len(vocabs) < vocab_size - len(special_tokens):
+        pair_stats = get_stats(words)
+        if not pair_stats:
+            break
+        merge_candidate = ()
+
+        merges.append(merge_candidate)
+        words = update_vocabs(words, merge_candidate)
+
+    return vocabs, merges
