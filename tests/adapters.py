@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable
 from typing import IO, Any, BinaryIO
+import regex as re
 
 import numpy.typing as npt
 import torch
@@ -590,26 +591,47 @@ def run_train_bpe(
                 Merges are ordered by order of creation.
     """
 
-    arr = []
-    # convert corpus into array of bytes words
-    with open(input_path, encoding="utf-8") as f:
-        for line in f.readlines():
-            arr += line.rstrip().split(" "))
-    
-    # train step
-    def get_stats(words):
+    import collections
+    def get_stats(array_of_bytes):
         """Given a array of bytes words, return a dictionary of pair statistics
         where keys are pairs and values are their frequencies in the corpus.
         """
-        common_pair = {}
-        return common_pair
+        counters = {}
+        for pair_of_bytes in zip(array_of_bytes, array_of_bytes[1:]):
+            if pair_of_bytes in counters:
+                counters[pair_of_bytes] += 1
+            else:
+                counters[pair_of_bytes] = 1
+        
+        counters = collections.Counter(counters)
+        # When computing merges, deterministically break ties in pair frequency by 
+        # preferring the lexicographically greater pair. 
+        # For example, if the pairs (“A”, “B”), (“A”, “C”), (“B”, “ZZ”), and (“BA”, “A”) all have the highest frequency, 
+        # we’d merge (“BA”, “A”):
+        return counters
+
+    def computes_bpe_merge(array_of_bytes):
+        new_merge = ()
+        return new_merge
 
     def update_vocabs(words, pair):
         return words
+    
+
+    bytes_arr = []
+    # Pre-tokenize corpus
+    # convert corpus into pre-tokens and represented each pre-token as a sequence of UTF-8 byes
+    pat = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    with open(input_path, encoding="utf-8") as f:
+        for line in f.readlines():
+            # .split(" ")) is naive
+            # pre-tokenize using OpenAI regex
+            bytes_arr += [w.string.encode("utf-8") for w in re.finditer(pat, string=line)]
+    
     vocabs = {} # int --> bytes
     merges = [] # tuple(bytes, bytes) -->
     while len(vocabs) < vocab_size - len(special_tokens):
-        pair_stats = get_stats(words)
+        merge_candidate = computes_bpe_merge(array_of_bytes=bytes_arr)
         if not pair_stats:
             break
         merge_candidate = ()
@@ -617,4 +639,4 @@ def run_train_bpe(
         merges.append(merge_candidate)
         words = update_vocabs(words, merge_candidate)
 
-    return vocabs, merges
+    return vocabs, merge
