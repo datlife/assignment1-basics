@@ -4,6 +4,7 @@ import os
 from collections.abc import Iterable
 from typing import IO, Any, BinaryIO
 import regex as re
+import collections
 
 import numpy.typing as npt
 import torch
@@ -591,19 +592,24 @@ def run_train_bpe(
                 Merges are ordered by order of creation.
     """
 
-    def pre_tokenize_corpous():
+    def pre_tokenize_corpus():
         bytes_arr = []
         # Pre-tokenize corpus
         # convert corpus into pre-tokens and represented each pre-token as a sequence of UTF-8 byes
         pat = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
         with open(input_path, encoding="utf-8") as f:
+            i = 0
             for line in f.readlines():
                 # .split(" ")) is naive
                 # pre-tokenize using OpenAI regex
-                bytes_arr += [w.string.encode("utf-8") for w in re.finditer(pat, string=line)]
-        
-    import collections
-    def computes_bpe_merge(array_of_bytes):
+                for w in re.finditer(pat, string=line):
+                    tokenized_w = w.group().encode("utf-8")
+                    bytes_arr.append(tokenized_w)
+                i+=1
+
+        return bytes_arr
+
+    def computes_bpe_merge(array_of_tokens):
         """Given a array of bytes words, return a dictionary of pair statistics
         where keys are pairs and values are their frequencies in the corpus.
 
@@ -613,35 +619,48 @@ def run_train_bpe(
         we’d merge (“BA”, “A”)
         """
         counters = {}
-        for pair_of_bytes in zip(array_of_bytes, array_of_bytes[1:]):
-            counters[pair_of_bytes] = counters.get(pair_of_bytes, 0) + 1
+        for pair_of_tokens in zip(array_of_tokens, array_of_tokens[1:]):
+            counters[pair_of_tokens] = counters.get(pair_of_tokens, 0) + 1
 
         # sort to find pairs with highest frequency
-
         # sort by lexicographically greater pair to find the common one
         c = collections.Counter(counters)
-        return c
+        best_pair = max(c.items(), key=lambda tokens: (tokens[0], tokens[1]))
+        return best_pair[0]
 
- 
-
-    def update_vocabs(words, pair):
-        return words
+    def update_vocabs(array_of_bytes, pair):
+        """Replaced any pair with new bytes
+        """
+        i = 0
+        replaced = 0
+        new_arr = []
+        new_word = pair[0] + pair[1]
+        while i < len(array_of_bytes) - 2:
+            if array_of_bytes[i] == pair[0] and array_of_bytes[i + 1] == pair[1]:
+                new_arr.append(new_word)
+                i+=2
+                replaced+=1
+            else:
+                new_arr.append(array_of_bytes[i])
+                i += 1  
+        print(f"Repalced {replaced} times before: {len(array_of_bytes)} new size: {len(new_arr)}")
+        return new_arr
     
 
-    arr_bytes = pre_tokenize_corpous()
-    vocabs = {} # int --> bytes
+    arr_bytes = pre_tokenize_corpus()
+    print(f"completed pre-tokenized corpus. size {len(arr_bytes)}")
+    vocabs = {i: bytes([i]) for i in range(256)} # int --> bytes
     merges = [] # tuple(bytes, bytes) -->
     while len(vocabs) < vocab_size - len(special_tokens):
-        merge_candidate = computes_bpe_merge(array_of_bytes=arr_bytes)
+        merge_candidate = computes_bpe_merge(array_of_tokens=arr_bytes)
         if not merge_candidate:
             break
-        merge_candidate = ()
-
         merges.append(merge_candidate)
+        new_idx = len(vocabs)+1
+        vocabs[new_idx] = list(merge_candidate)
         arr_bytes = update_vocabs(arr_bytes, merge_candidate)
 
     # Update special tokens
     for i in range(len(special_tokens)):
-        vocabs[len(vocabs) + i + 1] = special_tokens[i].encode("utf-8")
-
+        vocabs[len(vocabs) + i + 1] = bytes(list(special_tokens[i].encode("utf-8")))
     return vocabs, merges
