@@ -624,16 +624,13 @@ def run_train_bpe(
         for tokenized_word in bytestring_array:
             for pair in zip(tokenized_word, tokenized_word[1:]):
                 counters[pair] = counters.get(pair, 0) + 1
-        # sort to find pairs with highest frequency
-        # sort by lexicographically greater pair to find the common one
         c = collections.Counter(counters)
-        best_pair = max(c.items(), key=lambda tokens: (tokens[0], tokens[1]))
+        best_pair = max(c.items(), key=lambda x: (x[1], x[0])) # compare count first, then pair
         return best_pair[0]
 
     def update_vocabs(bytestring_array, pair):
         """Replaced any pair with new bytes
         """
-
         new_token = pair[0] + pair[1]
         result = []
         for token in bytestring_array:
@@ -658,11 +655,11 @@ def run_train_bpe(
         if not pair:
             break
         merges.append(pair)
-        vocabs[len(vocabs)+1] = pair[0] + pair[1] # b'1' + b'2' = b'12'
+        vocabs[len(vocabs)] = pair[0] + pair[1] # b'1' + b'2' = b'12'
         arr_bytes = update_vocabs(arr_bytes, pair)
 
     # Update special tokens
     for i in range(len(special_tokens)):
-        vocabs[len(vocabs) + i + 1] = bytes(list(special_tokens[i].encode("utf-8")))
+        vocabs[len(vocabs) + i] = bytes(list(special_tokens[i].encode("utf-8")))
 
     return vocabs, merges
