@@ -602,10 +602,18 @@ def run_train_bpe(
         NOTE: combine special tokens into regex pattern to remove 
         """
         bytes_arr = []
+        special_token_regex = f"({ '|'.join(re.escape(tok) for tok in special_tokens)})"
         with open(input_file, encoding="utf-8") as f:
             for line in f.readlines():
-                for w in re.finditer(regex_pattern, string=line):
-                    bytes_arr.append([bytes([i]) for i in w.group().encode("utf-8")])
+                chunks = re.split(special_token_regex, line)
+                for c in chunks:
+                    if c in special_tokens:
+                        # combine as a single atom unit
+                        bytes_arr.append([c.encode("utf-8")])
+                    else:
+                        # strip line into chunks with special tokens as walls
+                        for w in re.finditer(regex_pattern, string=c):
+                            bytes_arr.append([bytes([i]) for i in w.group().encode("utf-8")])
         return bytes_arr
 
 
@@ -647,7 +655,10 @@ def run_train_bpe(
         return result
     
 
-    arr_bytes = pre_tokenize_corpus(input_file=input_path, regex_pattern=OPENAI_PAT, special_tokens=special_tokens)
+    arr_bytes = pre_tokenize_corpus(
+        input_file=input_path, 
+        regex_pattern=OPENAI_PAT, 
+        special_tokens=special_tokens)
     vocabs = {i: bytes([i]) for i in range(256)} # bytestr --> token_id
     merges = [] # tuple (bytestr, bytestr)
     while len(vocabs) < vocab_size - len(special_tokens):
@@ -660,6 +671,6 @@ def run_train_bpe(
 
     # Update special tokens
     for i in range(len(special_tokens)):
-        vocabs[len(vocabs) + i] = bytes(list(special_tokens[i].encode("utf-8")))
+        vocabs[len(vocabs) + i] = special_tokens[i].encode("utf-8")
 
     return vocabs, merges
