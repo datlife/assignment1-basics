@@ -565,6 +565,22 @@ def get_tokenizer(
 
 
 import time
+from itertools import repeat
+def fn_process_chunk(filepath, special_tokens, regex_pattern, start, end):
+    result = []
+    special_token_regex = f"({ '|'.join(re.escape(tok) for tok in special_tokens)})"
+
+    with open(filepath, "rb") as file_io:
+        file_io.seek(start)
+        chunk = file_io.read(end - start).decode("utf-8", errors="ignore")
+        split_chunks_by_tokens = re.split(special_token_regex, chunk)
+        for c in split_chunks_by_tokens:
+            if c in special_tokens:
+                result.append([c.encode("utf-8")])
+            else:
+                for word in re.finditer(regex_pattern, string=c):
+                    result.append([bytes([i]) for i in word.group().encode("utf-8")])
+    return result
 def run_train_bpe(
     input_path: str | os.PathLike,
     vocab_size: int,
@@ -604,17 +620,29 @@ def run_train_bpe(
         """
         bytes_arr = []
         special_token_regex = f"({ '|'.join(re.escape(tok) for tok in special_tokens)})"
-        with open(input_file, encoding="utf-8") as f:
-            data = f.read()
-            chunks = re.split(special_token_regex, data)
-            for c in chunks:
-                if c in special_tokens:
-                    # combine as a single atom unit
-                    bytes_arr.append([c.encode("utf-8")])
-                else:
-                    for w in re.finditer(regex_pattern, string=c):
-                        bytes_arr.append([bytes([i]) for i in w.group().encode("utf-8")])
-        return bytes_arr
+        cpu_cores = mp.cpu_count()
+        chunks = []
+        with open(input_path, "rb") as file_io:
+            chunk_size = 2*cpu_cores+1
+            chunks = find_chunk_boundaries(file_io, chunk_size, b"<|endoftext|>")
+
+        with mp.Pool(mp.cpu_count()) as p:
+            results = p.starmap(fn_process_chunk, zip(repeat(input_path), repeat(special_tokens), repeat(regex_pattern), chunks[:-1], chunks[1:]))
+
+        return [item for sublist in results for item in sublist]
+        # bytes_arr = []
+        # special_token_regex = f"({ '|'.join(re.escape(tok) for tok in special_tokens)})"
+        # with open(input_file, encoding="utf-8") as f:
+        #     data = f.read()
+        #     chunks = re.split(special_token_regex, data)
+        #     for c in chunks:
+        #         if c in special_tokens:
+        #             # combine as a single atom unit
+        #             bytes_arr.append([c.encode("utf-8")])
+        #         else:
+        #             for w in re.finditer(regex_pattern, string=c):
+        #                 bytes_arr.append([bytes([i]) for i in w.group().encode("utf-8")])
+        # return bytes_arr
 
 
     def computes_bpe_merge(bytestring_array):
@@ -656,7 +684,6 @@ def run_train_bpe(
     
 
     arr_bytes = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
-    # bytestr --> token_id
     vocabs = {i: bytes([i]) for i in range(256)}
     merges = [] # tuple (bytestr, bytestr)
     while len(vocabs) < vocab_size - len(special_tokens):
