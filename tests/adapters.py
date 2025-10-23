@@ -10,8 +10,8 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-
-
+from cs336_basics.pretokenization_example import find_chunk_boundaries
+import multiprocessing as mp
 def run_linear(
     d_in: int,
     d_out: int,
@@ -564,6 +564,7 @@ def get_tokenizer(
     raise NotImplementedError
 
 
+import time
 def run_train_bpe(
     input_path: str | os.PathLike,
     vocab_size: int,
@@ -604,16 +605,15 @@ def run_train_bpe(
         bytes_arr = []
         special_token_regex = f"({ '|'.join(re.escape(tok) for tok in special_tokens)})"
         with open(input_file, encoding="utf-8") as f:
-            for line in f.readlines():
-                chunks = re.split(special_token_regex, line)
-                for c in chunks:
-                    if c in special_tokens:
-                        # combine as a single atom unit
-                        bytes_arr.append([c.encode("utf-8")])
-                    else:
-                        # strip line into chunks with special tokens as walls
-                        for w in re.finditer(regex_pattern, string=c):
-                            bytes_arr.append([bytes([i]) for i in w.group().encode("utf-8")])
+            data = f.read()
+            chunks = re.split(special_token_regex, data)
+            for c in chunks:
+                if c in special_tokens:
+                    # combine as a single atom unit
+                    bytes_arr.append([c.encode("utf-8")])
+                else:
+                    for w in re.finditer(regex_pattern, string=c):
+                        bytes_arr.append([bytes([i]) for i in w.group().encode("utf-8")])
         return bytes_arr
 
 
@@ -655,11 +655,9 @@ def run_train_bpe(
         return result
     
 
-    arr_bytes = pre_tokenize_corpus(
-        input_file=input_path, 
-        regex_pattern=OPENAI_PAT, 
-        special_tokens=special_tokens)
-    vocabs = {i: bytes([i]) for i in range(256)} # bytestr --> token_id
+    arr_bytes = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
+    # bytestr --> token_id
+    vocabs = {i: bytes([i]) for i in range(256)}
     merges = [] # tuple (bytestr, bytestr)
     while len(vocabs) < vocab_size - len(special_tokens):
         pair = computes_bpe_merge(bytestring_array=arr_bytes)
@@ -669,7 +667,6 @@ def run_train_bpe(
         vocabs[len(vocabs)] = pair[0] + pair[1] # b'1' + b'2' = b'12'
         arr_bytes = update_vocabs(arr_bytes, pair)
 
-    # Update special tokens
     for i in range(len(special_tokens)):
         vocabs[len(vocabs) + i] = special_tokens[i].encode("utf-8")
 
