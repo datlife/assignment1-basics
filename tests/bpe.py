@@ -142,7 +142,6 @@ def run_train_bpe(
     # to update both pair_stats and word_freqs
     pair_to_words_index: dict = {}
 
-
     # build merge of all pairs one time
     # merge
     for token, freq in word_freqs.items():
@@ -159,35 +158,20 @@ def run_train_bpe(
         best_pair, freq = max(pair_stats.items(), key=lambda x: (x[1], x[0]))
         merged_pair = best_pair[0] + best_pair[1]
 
-        # incremental update word_stats and pair stats, and  pair_to_words_index with new pair
-        # best_pair = ab
-        # words_freqs = {[a,b,a]: 2, [a,b,a,b,c]: 3, [d,e]:1} ===> {[ab,a ]: 2, [ab, ab, c]:3}
-        # pair_stats: swap all key with new pair
-        #   old: [a,b]: 2+3*2=8 [b,a]: 5, [b,c] = 3 , [d,e]:1
-        #   new: [ab]: 8, [b,a]:5 [b,c] 3 -- delete [ab]
-        #   new: [b,a]: 5, [b,c]:3, [d,e]: 1
-        # pair_to_words = 
-        #   old:  
-        #      [a,b]: set({aba, ababc})
-        #      [b,a]: set({aba, ababc})
-        #      [b,c]: set({ababc})
-        #      [d,e]: set({de})
-        #   new:
-        #     delete pair_to_words[a,b]
-        #     add [ab,a] : set({aba, ababc})
-        #      [ab,a] : set({aba, ababc})
-        #      [b,a]: set({aba, ababc})
-        #      [b,c]: set({ababc})
-        #      [d,e]: set({de})
-        # Implementation strategy: Decrement/INcrement
-        # Decrement all keys related to old_token and best_pair in word_freqs, pair_stats
         tokens_to_be_updated = pair_to_words_index.pop(best_pair)
+        # incremental update. For each token related to the pair
+        # update its word_freqs by building new key and remove old key
+        # 
         del pair_stats[best_pair]
+    
+        # This map will store the new words we create in this loop
+        # We update word_freqs *after* the loop to avoid
+        # processing a word we just created.
+        new_word_cache = collections.defaultdict(int)
         for old_token in tokens_to_be_updated:
-            
-            print(f"Is old_token in word_freqs: {True if old_token in word_freqs else False}")
             # update new word into word stats
             i, new_token = 0, []
+            old_freq = word_freqs.pop(old_token)
             while i < len(old_token):
                 if i < len(old_token) - 1 and old_token[i] == best_pair[0] and old_token[i+1] == best_pair[1]:
                     new_token.append(merged_pair)
@@ -196,21 +180,30 @@ def run_train_bpe(
                     new_token.append(old_token[i])
                     i+=1
             new_token = tuple(new_token)
-            print(f"New token: {new_token}\nold token: {old_token}\n=====")
-            word_freqs[new_token] = word_freqs[old_token]
+            # 4. Cache the new word's frequency (Fixes the overwrite bug)
+            new_word_cache[new_token] += old_freq
 
-            # update pair stats
+            # clear all pairs in old token 
+            for old_pair in zip(old_token, old_token[1:]):
+                # remove frequency of old_token : new_stats = exist_stats - freq(old_token)
+                if old_pair in pair_stats:
+                    pair_stats[old_pair] -= old_freq
+                if old_pair in pair_to_words_index:
+                    pair_to_words_index[old_pair].discard(old_token)
+
+            # add new pair stats using new token
             # before : a b c d e e  new_pair = d e
             # after  : a b c (d e), e 
             for new_pair in zip(new_token, new_token[1:]):
-                pair_stats[new_pair] = pair_stats.get(new_pair, 0) + freq
+                pair_stats[new_pair] += old_freq
                 if new_pair not in pair_to_words_index:
                     pair_to_words_index[new_pair] = set()
                 else:
                     pair_to_words_index[new_pair] |= set({new_token})
-            del word_freqs[old_token]
 
-
+        # Now, add all the cached new words to the main word_freqs
+        for new_token, freq in new_word_cache.items():
+            word_freqs[new_token] = word_freqs.get(new_token, 0) + freq
         # add to final result
         vocabs[len(vocabs)] = merged_pair
         merges.append(best_pair)
