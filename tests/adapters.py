@@ -3,15 +3,13 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable
 from typing import IO, Any, BinaryIO, List
-import regex as re
-import collections
 
 import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-from cs336_basics.pretokenization_example import find_chunk_boundaries
-import multiprocessing as mp
+from .bpe import run_train_bpe
+
 def run_linear(
     d_in: int,
     d_out: int,
@@ -563,138 +561,3 @@ def get_tokenizer(
     """
     raise NotImplementedError
 
-
-import time
-from itertools import repeat
-def fn_process_chunk(filepath, special_tokens, regex_pattern, start, end):
-    result = []
-    special_token_regex = f"({ '|'.join(re.escape(tok) for tok in special_tokens)})"
-
-    with open(filepath, "rb") as file_io:
-        file_io.seek(start)
-        chunk = file_io.read(end - start).decode("utf-8", errors="ignore")
-        split_chunks_by_tokens = re.split(special_token_regex, chunk)
-        for c in split_chunks_by_tokens:
-            if c in special_tokens:
-                result.append([c.encode("utf-8")])
-            else:
-                for word in re.finditer(regex_pattern, string=c):
-                    result.append([bytes([i]) for i in word.group().encode("utf-8")])
-    return result
-def run_train_bpe(
-    input_path: str | os.PathLike,
-    vocab_size: int,
-    special_tokens: list[str],
-    **kwargs,
-) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-    """Given the path to an input corpus, run train a BPE tokenizer and
-    output its vocabulary and merges.
-
-    Args:
-        input_path (str | os.PathLike): Path to BPE tokenizer training data.
-        vocab_size (int): Total number of items in the tokenizer's vocabulary (including special tokens).
-        special_tokens (list[str]): A list of string special tokens to be added to the tokenizer vocabulary.
-            These strings will never be split into multiple tokens, and will always be
-            kept as a single token. If these special tokens occur in the `input_path`,
-            they are treated as any other string.
-
-    Returns:
-        tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-            vocab:
-                The trained tokenizer vocabulary, a mapping from int (token ID in the vocabulary)
-                to bytes (token bytes)
-            merges:
-                BPE merges. Each list item is a tuple of bytes (<token1>, <token2>),
-                representing that <token1> was merged with <token2>.
-                Merges are ordered by order of creation.
-    """
-    OPENAI_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-    def pre_tokenize_corpus(input_file: str | os.PathLike, regex_pattern: str, special_tokens: List[str]):
-        """Transform corpuse in to tokenized bytesarray based on a regex pattern (original paper using " " but it's limited).
-        because it would separate case dog!, dog. and dog into 3 separate tokens (although it has the same semantic meaning)
-
-        For example:
-            Hello world --> [b'Hello', b' ', b'world'] --> [['h','e','l','l,'o'], [' ', 'w', 'o','r','l','d']]
-
-        NOTE: combine special tokens into regex pattern to remove 
-        """
-        bytes_arr = []
-        special_token_regex = f"({ '|'.join(re.escape(tok) for tok in special_tokens)})"
-        cpu_cores = mp.cpu_count()
-        chunks = []
-        with open(input_path, "rb") as file_io:
-            chunk_size = 2*cpu_cores+1
-            chunks = find_chunk_boundaries(file_io, chunk_size, b"<|endoftext|>")
-
-        with mp.Pool(mp.cpu_count()) as p:
-            results = p.starmap(fn_process_chunk, zip(repeat(input_path), repeat(special_tokens), repeat(regex_pattern), chunks[:-1], chunks[1:]))
-
-        return [item for sublist in results for item in sublist]
-        # bytes_arr = []
-        # special_token_regex = f"({ '|'.join(re.escape(tok) for tok in special_tokens)})"
-        # with open(input_file, encoding="utf-8") as f:
-        #     data = f.read()
-        #     chunks = re.split(special_token_regex, data)
-        #     for c in chunks:
-        #         if c in special_tokens:
-        #             # combine as a single atom unit
-        #             bytes_arr.append([c.encode("utf-8")])
-        #         else:
-        #             for w in re.finditer(regex_pattern, string=c):
-        #                 bytes_arr.append([bytes([i]) for i in w.group().encode("utf-8")])
-        # return bytes_arr
-
-
-    def computes_bpe_merge(bytestring_array):
-        """Given a array of bytes words, return a dictionary of pair statistics
-        where keys are pairs and values are their frequencies in the corpus.
-
-        NOTE: we merge inside tokenized word bounderies.
-
-        NOTE: When computing merges, deterministically break ties in pair frequency by 
-        preferring the lexicographically greater pair.
-        For example, if the pairs (“A”, “B”), (“A”, “C”), (“B”, “ZZ”), and (“BA”, “A”) all have the highest frequency, 
-        we’d merge (“BA”, “A”)
-        """
-        counters = {}
-        for tokenized_word in bytestring_array:
-            for pair in zip(tokenized_word, tokenized_word[1:]):
-                counters[pair] = counters.get(pair, 0) + 1
-        c = collections.Counter(counters)
-        best_pair = max(c.items(), key=lambda x: (x[1], x[0])) # compare count first, then pair
-        return best_pair[0]
-
-    def update_vocabs(bytestring_array, pair):
-        """Replaced any pair with new bytes
-        """
-        new_token = pair[0] + pair[1]
-        result = []
-        for token in bytestring_array:
-            i = 0
-            new_arr = [] 
-            while i < len(token):
-                if i < len(token)-1 and token[i] == pair[0] and token[i + 1] == pair[1]:
-                    new_arr.append(new_token)
-                    i+=2
-                else:
-                    new_arr.append(token[i])
-                    i += 1
-            result.append(new_arr)
-        return result
-    
-
-    arr_bytes = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
-    vocabs = {i: bytes([i]) for i in range(256)}
-    merges = [] # tuple (bytestr, bytestr)
-    while len(vocabs) < vocab_size - len(special_tokens):
-        pair = computes_bpe_merge(bytestring_array=arr_bytes)
-        if not pair:
-            break
-        merges.append(pair)
-        vocabs[len(vocabs)] = pair[0] + pair[1] # b'1' + b'2' = b'12'
-        arr_bytes = update_vocabs(arr_bytes, pair)
-
-    for i in range(len(special_tokens)):
-        vocabs[len(vocabs) + i] = special_tokens[i].encode("utf-8")
-
-    return vocabs, merges

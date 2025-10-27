@@ -1,4 +1,4 @@
-from tests.adapters import run_train_bpe
+from tests.bpe import run_train_bpe
 
 def main():
     input_path = "./tests/fixtures/corpus.en"
@@ -13,8 +13,6 @@ def main():
     for word_bytes in vocabs_without_specials:
         assert b"<|" not in word_bytes
 
-    print(len(merges))
-    print(merges[:10])
-
+    print("Finished")
 if __name__ == "__main__":
     main()
