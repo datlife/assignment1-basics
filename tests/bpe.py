@@ -142,72 +142,11 @@ def run_train_bpe(
     # to update both pair_stats and word_freqs
     pair_to_words_index: dict = {}
 
-    # build merge of all pairs one time
-    # merge
-    for token, freq in word_freqs.items():
-        for pair in zip(token, token[1:]):
-            pair_stats[pair] = pair_stats.get(pair, 0) + freq
-            if pair not in pair_to_words_index:
-                pair_to_words_index[pair] = set()
-            else:
-                pair_to_words_index[pair] |= set({token})
-
-    while len(vocabs) < vocab_size - len(special_tokens):
-
-        # Find pair with the most frequency
-        best_pair, freq = max(pair_stats.items(), key=lambda x: (x[1], x[0]))
-        merged_pair = best_pair[0] + best_pair[1]
-
-        tokens_to_be_updated = pair_to_words_index.pop(best_pair)
-        # incremental update. For each token related to the pair
-        # update its word_freqs by building new key and remove old key
-        # 
-        del pair_stats[best_pair]
-    
-        # This map will store the new words we create in this loop
-        # We update word_freqs *after* the loop to avoid
-        # processing a word we just created.
-        new_word_cache = collections.defaultdict(int)
-        for old_token in tokens_to_be_updated:
-            # update new word into word stats
-            i, new_token = 0, []
-            old_freq = word_freqs.pop(old_token)
-            while i < len(old_token):
-                if i < len(old_token) - 1 and old_token[i] == best_pair[0] and old_token[i+1] == best_pair[1]:
-                    new_token.append(merged_pair)
-                    i+=2
-                else:
-                    new_token.append(old_token[i])
-                    i+=1
-            new_token = tuple(new_token)
-            # 4. Cache the new word's frequency (Fixes the overwrite bug)
-            new_word_cache[new_token] += old_freq
-
-            # clear all pairs in old token 
-            for old_pair in zip(old_token, old_token[1:]):
-                # remove frequency of old_token : new_stats = exist_stats - freq(old_token)
-                if old_pair in pair_stats:
-                    pair_stats[old_pair] -= old_freq
-                if old_pair in pair_to_words_index:
-                    pair_to_words_index[old_pair].discard(old_token)
-
-            # add new pair stats using new token
-            # before : a b c d e e  new_pair = d e
-            # after  : a b c (d e), e 
-            for new_pair in zip(new_token, new_token[1:]):
-                pair_stats[new_pair] += old_freq
-                if new_pair not in pair_to_words_index:
-                    pair_to_words_index[new_pair] = set()
-                else:
-                    pair_to_words_index[new_pair] |= set({new_token})
-
-        # Now, add all the cached new words to the main word_freqs
-        for new_token, freq in new_word_cache.items():
-            word_freqs[new_token] = word_freqs.get(new_token, 0) + freq
-        # add to final result
-        vocabs[len(vocabs)] = merged_pair
-        merges.append(best_pair)
-
+    # Parse corpus into tokens with frequecny. We don't care about about order (hello->>world) because
+    # this is in a training step for BPE. we aim to compress the tokens.
+    #
+    # hi o e hi e hi --> {b'hi': 3; b'e': 2, b'e': 1} split by space
+    # hi o e hi e hi --> 
     for i in range(len(special_tokens)):
         vocabs[len(vocabs) + i] = special_tokens[i].encode("utf-8")
 
