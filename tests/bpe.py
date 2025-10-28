@@ -145,8 +145,8 @@ def run_train_bpe(
     # Parse corpus into tokens with frequecny. We don't care about about order (hello->>world) because
     # this is in a training step for BPE. we aim to compress the tokens.
     #
-    # hi o e hi e hi --> {b'hi': 3; b'e': 2, b'e': 1} split by space
-    # hi o e hi e hi --> 
+    # hi o <|eot|> hi e hi --> {b'hi': 3; b'e': 2, b' o': 1} split by space
+    # hi o e hi e hi --> {b'hi ': 3; b'e': 2, b' o': 1}
     for i in range(len(special_tokens)):
         vocabs[len(vocabs) + i] = special_tokens[i].encode("utf-8")
 
