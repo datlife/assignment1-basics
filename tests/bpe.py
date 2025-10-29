@@ -134,18 +134,16 @@ def run_train_bpe(
             merged_dict = dict(reduce(lambda d1, d2: d1 + d2, results))
         return merged_dict
 
-    vocabs = {i: bytes([i]) for i in range(256)}
-    # tuple (bytestr, bytestr)
-    merges = []
 
     # word tuple ---> frequency
-    word_freqs = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
+    # uppdate to ordereddict to save on memory on reverse index from pair--> List[words], become List[idx]
+    word_stats = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
 
     # counter of pair --> frequency
     pair_stats = collections.Counter()
 
     # pair ---> set of word tuple to be updated after each while loop. It's used
-    # to update both pair_stats and word_freqs
+    # to update both pair_stats and word_stats
     pair_to_words_index: dict = {}
 
     # Parse corpus into tokens with frequecny. We don't care about about order (hello->>world) because
@@ -163,6 +161,42 @@ def run_train_bpe(
     #.    [oe]:  [oee]
     #.    [ee]:  [oee], 
     #     [<|eot|>, ] :  <|eot|> 
+    for i, word in enumerate(word_stats):
+        for pair in zip(word, word[1:]):
+            pair_stats.update({pair: word_stats[word]})
+            pair_to_words_index[pair] = pair_to_words_index.get(pair, set()) | {word}
+
+    vocabs = {i: bytes([i]) for i in range(256)}
+    merges: list[tuple[bytes, bytes]] = []
+    num_merges = vocab_size - len(vocabs)
+    for i in range(num_merges):
+        best_pair, count = pair_stats.most_common(1)
+        related_words = pair_to_words_index[best_pair]
+
+        for rw in related_words:
+            # remove pair in rw:
+            i, nw = 0, []
+            old_pairs = []
+            while i < len(rw):
+                if i < len(rw)-1 and best_pair[0] == rw[i] and best_pair[1] == rw[i+1]:
+                    nw.append(best_pair[0] + best_pair[1])
+                    old_pairs.append({})
+
+                    # TODO (dat) remove old pair from pair_stats - freq
+                    pair_to_be_removed = [tuple([rw[i], rw[i+1]])]
+                    if i+2 <= len(rw):
+                        pair_to_be_removed.append(tuple([rw[i+1], rw[i+2]]))
+                    i+=2
+                else:
+                    nw.append(rw[i])
+                    i+=1
+            nw = tuple(nw) # convert to tuple because its the data type for word_stats
+            pair_to_words_index[best_pair] -= {rw}
+            pair_to_words_index[best_pair] |= {nw}
+            word_stats[nw] = word_stats.pop(rw)
+
+
+            # e.g best_pair hi --> remove [h,i] and [i ]
 
     ## main algorithm:
     # key idea: incremental update
@@ -176,8 +210,8 @@ def run_train_bpe(
     #   words_stas: remove b['h,'i',' ']: 2,     add b'['hi', '']: 2
     #   freq_stats: remove [h,i]: 3, [i ]: 3,    add ['hi ']: 3
     # hie, freq 1:
-    #   words_stas: remove b['h,'i',' e']: 1,     add b'['hi', 'e]: 1
-    #.  freq_stats: remove b['i, e']: 1           add b['hi,' e]:1
+    #   words_stas: remove b['h,'i',' e']: 1,    add b'['hi', 'e]: 1
+    #.  freq_stats: remove b['i, e']: 1          add b['hi,' e]:1
     for i in range(len(special_tokens)):
         vocabs[len(vocabs) + i] = special_tokens[i].encode("utf-8")
 
