@@ -60,8 +60,14 @@ def fn_process_chunk(filepath, special_tokens, regex_pattern, start, end) -> col
 
     Why? so we can speed up merge. In a naive impl, we construct an array.
     And words may repeat multiple times in a corpus, causing uncessary scans. 
+
+    RETURN:
+        words_stats - a dictionary with key as a tuple of bytestring, value is number of occurences in the corpus
+
+    NOTES:
+        
     """
-    res = collections.Counter()
+    words_stats = collections.Counter()
     special_token_regex = f"({ '|'.join(re.escape(tok) for tok in special_tokens)})"
 
     with open(filepath, "rb") as file_io:
@@ -71,13 +77,13 @@ def fn_process_chunk(filepath, special_tokens, regex_pattern, start, end) -> col
         for c in split_chunks_by_tokens:
             if c in special_tokens:
                 updated_token = (c.encode("utf-8"),)
-                res[updated_token] = res.get(updated_token, 0) + 1
+                words_stats[updated_token] = words_stats.get(updated_token, 0) + 1
             else:
                 for word in re.finditer(regex_pattern, string=c):
                     # b'hello' ---> [b'h', b'e', b'l', b'l', b'o']
                     updated_token = tuple(bytes([i]) for i in word.group().encode("utf-8"))
-                    res[updated_token] = res.get(updated_token, 0) + 1
-    return res
+                    words_stats[updated_token] = words_stats.get(updated_token, 0) + 1
+    return words_stats
 
 def run_train_bpe(
     input_path: str | os.PathLike,
@@ -145,8 +151,33 @@ def run_train_bpe(
     # Parse corpus into tokens with frequecny. We don't care about about order (hello->>world) because
     # this is in a training step for BPE. we aim to compress the tokens.
     #
-    # hi o <|eot|> hi e hi --> {b'hi': 3; b'e': 2, b' o': 1} split by space
-    # hi o e hi e hi --> {b'hi ': 3; b'e': 2, b' o': 1}
+    # hi oee <|eot|> hi hie --> {b'hi': 2, b'hie': 1, b'oee': 1, b'<|eot|>': 1} split by space
+    # hi oee <|eot|> hi hie --> {b'hi': 2, b'hie': 1, b'oee : 1, b'<|eot|>': 1} split by regex
+
+    ## Count pair frequency : key: tuple of bytes --> freq count
+    # { [h,i]: 3, [i ]: 2, [ie]: 1, [oe]: 1, [ee]: 1, [b'<|eot|>', ]: 1]} 
+    # reverse: (how to store idx instead of storing whole string)
+    #.    [h, i]: [hi, hie]
+    #.    [i, ]: [hi]
+    #.    [i, e]: [hie]
+    #.    [oe]:  [oee]
+    #.    [ee]:  [oee], 
+    #     [<|eot|>, ] :  <|eot|> 
+
+    ## main algorithm:
+    # key idea: incremental update
+    # only update pairs, and tokens that are related to pair
+    #    word_stats: {b'hi ': 3; b'oee ': 1, b'<|eot|>': 1}
+    #.   freq_stats  {[h,i]: 3, [i ]:2,  [ie]: 1, [oe]: 1, [ee]: 1, [b'<|eot|>', ]: 1]}
+    #    best_pair: [h,i]:3 
+
+    # Step words update (hi, hie):
+    # hi, freq 3
+    #   words_stas: remove b['h,'i',' ']: 2,     add b'['hi', '']: 2
+    #   freq_stats: remove [h,i]: 3, [i ]: 3,    add ['hi ']: 3
+    # hie, freq 1:
+    #   words_stas: remove b['h,'i',' e']: 1,     add b'['hi', 'e]: 1
+    #.  freq_stats: remove b['i, e']: 1           add b['hi,' e]:1
     for i in range(len(special_tokens)):
         vocabs[len(vocabs) + i] = special_tokens[i].encode("utf-8")
 
