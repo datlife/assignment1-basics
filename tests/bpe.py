@@ -220,10 +220,29 @@ def run_train_bpe(
             tokenized_sequences = dict(reduce(lambda d1, d2: d1 + d2, results))
         return list(tokenized_sequences.items())
 
+        # # SEQUENTIAL PROCESSING (Multiprocessing Disabled)
+        # tokenized_sequences = collections.Counter()
+        
+        # # Process each chunk strictly in order
+        # for start, end in zip(chunks[:-1], chunks[1:]):
+        #     chunk_result = fn_process_chunk(
+        #         input_file, 
+        #         special_tokens, 
+        #         regex_pattern, 
+        #         start, 
+        #         end
+        #     )
+        #     # Combine the counts sequentially
+        #     tokenized_sequences.update(chunk_result)
+        # return list(tokenized_sequences.items())
 
     tokenized_sequences = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
 
     # [i] because bytes only accepts a list / iterable. If a number is passed, it will init an array of zero size i instead
+    vocab = {}
+    # special update for special tokens
+    for i in range(len(special_tokens)):
+        vocab[len(vocab) + i] = special_tokens[i].encode("utf-8")
     vocab = {i: bytes([i]) for i in range(256)}
     merges = []
 
@@ -269,9 +288,5 @@ def run_train_bpe(
             # update  tokenized_sequences with the new_seq (same characters, different partitions)
             tokenized_sequences[seq_idx] = (new_seq, frequency)
 
-
-    # special update for special tokens
-    for i in range(len(special_tokens)):
-        vocab[len(vocab) + i] = special_tokens[i].encode("utf-8")
 
     return vocab, merges
