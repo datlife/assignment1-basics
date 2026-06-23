@@ -59,15 +59,15 @@ def fn_process_chunk(filepath, special_tokens, regex_pattern, start, end) -> col
     e.g {b'[h, e, l, l, o]: 1, b[w, o, r, l, d]: 2}
 
     Why? so we can speed up merge. In a naive impl, we construct an array.
-    And words may repeat multiple times in a corpus, causing uncessary scans. 
+    And words may repeat multiple times in a corpus, causing unnecessary scans. 
 
     RETURN:
-        words_stats - a dictionary with key as a tuple of bytestring, value is number of occurences in the corpus
+        sequences - a dictionary with key as a tuple of bytestring, value is number of occurrences in the corpus
 
     NOTES:
         
     """
-    words_stats = collections.Counter()
+    sequences = collections.Counter()
     special_token_regex = f"({ '|'.join(re.escape(tok) for tok in special_tokens)})"
 
     with open(filepath, "rb") as file_io:
@@ -77,13 +77,78 @@ def fn_process_chunk(filepath, special_tokens, regex_pattern, start, end) -> col
         for c in split_chunks_by_tokens:
             if c in special_tokens:
                 updated_token = (c.encode("utf-8"),)
-                words_stats[updated_token] = words_stats.get(updated_token, 0) + 1
+                sequences[updated_token] = sequences.get(updated_token, 0) + 1
             else:
+                # b'hello' ---> [b'h', b'e', b'l', b'l', b'o']
                 for word in re.finditer(regex_pattern, string=c):
-                    # b'hello' ---> [b'h', b'e', b'l', b'l', b'o']
                     updated_token = tuple(bytes([i]) for i in word.group().encode("utf-8"))
-                    words_stats[updated_token] = words_stats.get(updated_token, 0) + 1
-    return words_stats
+                    sequences[updated_token] = sequences.get(updated_token, 0) + 1
+    return sequences
+
+def compute_pair_count(sequences):
+    """ Returns a dictionary of pair to its frequency appearing in sequences
+    params:
+        sequences: dict[tuple of bytestring, frequency]
+
+    NOTE:
+        - sequence may appear 1 or more time in a corpus
+        - a pair may be overlapped in a given sequence (e.g. aaaaa) 
+    """
+    pair_count = {}
+    for bytestring_tuple, frequency in sequences:
+        for pair in zip(bytestring_tuple, bytestring_tuple[1:]):
+            if pair in pair_count:
+                pair_count[pair] += frequency
+            else:
+                pair_count[pair] = frequency
+    return pair_count
+
+def compute_pair_to_sequence_idx(sequences):
+    """ A convenient reversed idx to find a list of sequences to be update after a merge
+    """
+    reversed_idx = collections.defaultdict(set) # set to dedup potential sequence
+    for idx, (seq_key, _) in enumerate(sequences):
+        for pair_tuple in zip(seq_key, seq_key[1:]):
+             reversed_idx[pair_tuple].add(idx)
+    return reversed_idx
+
+def find_most_common_pairs(pair_count):
+    """ Return the most common pairs among all tokenized sequences.
+    In case of a tie-breaking pair, pick the first one
+    """
+    return max(pair_count, key=pair_count.get)
+
+    # # pick one in lexicographically order.
+    # return min(pair_count, key=lambda p: (-pair_count[p], p))
+
+
+def update_sequence(seq, best_pair):
+    """ Update a sequence with a new pair. watch out for overlapping neighbor (e.g aaaa)
+    params:
+        seq: a tuple of bytestring 
+        best_pair: a tuple 
+    """
+    i, j = 0, 1
+    new_seq = []
+    # a a a a ----> (a,a) deleted ,       add b'aa', 'aa
+    # a a c   ----> (a,a), (a,c) deleted, add (b'aa, b'c')
+    # b a a c ----> (b,a), (a, a) (a,c) deleted, add (b, 'aa') and ('aa', c)
+    # insight: for every best_pair found in a seq, we need to update a left and right pair of that string
+
+    while j < len(seq):
+        if tuple([seq[i], seq[j]]) == best_pair:
+            new_seq.append(seq[i] + seq[j])
+            i += 2 
+            j += 2
+        else:
+            new_seq.append(seq[i])
+            i += 1
+            j += 1
+    # edge case
+    if i == len(seq) - 1:
+        new_seq.append(seq[i])
+
+    return tuple(new_seq)
 
 def run_train_bpe(
     input_path: str | os.PathLike,
@@ -112,107 +177,101 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
+
+    """"
+    # key idea (not complete):
+        Pre-tokenize corpus data into sequences, split by special regex (e.g. OpenAI)
+        Init important data structures:
+            - sequences: an ordered list sequences in corpus + its frequency
+            - pair_count: frequency of  adjacent pair among sequences
+            - pair_to_idx: reversed index of pair to a list of sequence indices where a pair is appeared
+            - vocab: trained tokenizer vocabulary
+            - merges: list of merges, ordered by creation
+        Main loop (vocab_size - len(special_tokens))
+            Find most common pair in the updated sequences.
+            Record new merge and vocab
+            Update step:
+                Rewrite related sequences with the new pair (be careful of overlapping neighbors)
+                Update pair bookkeeping for changed sequences (pair_count and pair_to_idx): new pair and neighboring pairs
+        Add special tokens to the vocab
+    
+    # note on utf-8:
+        * for this algorithm, all operation should be in bytestring (sequence: a list of bytestring, pair_count a tuple of bytestring)
+        * bytestring is an utf-8 encoded of a character. 
+    """
+    # GPT-2 ?
     OPENAI_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-    def pre_tokenize_corpus(input_file: str | os.PathLike, regex_pattern: str, special_tokens: List[str]):
-        """Transform corpuse in to tokenized bytesarray based on a regex pattern (original paper using " " but it's limited).
-        because it would separate case dog!, dog. and dog into 3 separate tokens (although it has the same semantic meaning)
-
-        For example:
-            Hello world --> [b'Hello', b' ', b'world'] --> [['h','e','l','l,'o'], [' ', 'w', 'o','r','l','d']]
-
-        NOTE: combine special tokens into regex pattern to remove 
+    def pre_tokenize_corpus(input_file: str | os.PathLike, 
+                            regex_pattern: str, 
+                            special_tokens: List[str]):
+        """Transform corpus in to tokenized bytes-array based on a regex pattern
+        Returns: a list of [sequence: frequency]
         """
-        cpu_cores = mp.cpu_count()
         chunks = []
-        with open(input_path, "rb") as file_io:
-            chunk_size = 2 * cpu_cores + 1
+        with open(input_file, "rb") as file_io:
+            chunk_size = 2 * mp.cpu_count() + 1
             chunks = find_chunk_boundaries(file_io, chunk_size, b"<|endoftext|>")
         print(f"Splitted corpus into {len(chunks)} chunks")
-    
+
+        # mapping of sequence (a list of byte objects) --> occurrences
+        tokenized_sequences = {}
         with mp.Pool(mp.cpu_count()) as p:
             results = p.starmap(fn_process_chunk, zip(repeat(input_path), repeat(special_tokens), repeat(regex_pattern), chunks[:-1], chunks[1:]))
-            merged_dict = dict(reduce(lambda d1, d2: d1 + d2, results))
-        return merged_dict
+            tokenized_sequences = dict(reduce(lambda d1, d2: d1 + d2, results))
+        return list(tokenized_sequences.items())
 
 
-    # word tuple ---> frequency
-    # uppdate to ordereddict to save on memory on reverse index from pair--> List[words], become List[idx]
-    word_stats = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
+    tokenized_sequences = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
 
-    # counter of pair --> frequency
-    pair_stats = collections.Counter()
+    # [i] because bytes only accepts a list / iterable. If a number is passed, it will init an array of zero size i instead
+    vocab = {i: bytes([i]) for i in range(256)}
+    merges = []
 
-    # pair ---> set of word tuple to be updated after each while loop. It's used
-    # to update both pair_stats and word_stats
-    pair_to_words_index: dict = {}
+    pair_count = compute_pair_count(tokenized_sequences)
+    pair_to_sequences_idx = compute_pair_to_sequence_idx(tokenized_sequences)
 
-    # Parse corpus into tokens with frequecny. We don't care about about order (hello->>world) because
-    # this is in a training step for BPE. we aim to compress the tokens.
-    #
-    # hi oee <|eot|> hi hie --> {b'hi': 2, b'hie': 1, b'oee': 1, b'<|eot|>': 1} split by space
-    # hi oee <|eot|> hi hie --> {b'hi': 2, b'hie': 1, b'oee : 1, b'<|eot|>': 1} split by regex
-
-    ## Count pair frequency : key: tuple of bytes --> freq count
-    # { [h,i]: 3, [i ]: 2, [ie]: 1, [oe]: 1, [ee]: 1, [b'<|eot|>', ]: 1]} 
-    # reverse: (how to store idx instead of storing whole string)
-    #.    [h, i]: [hi, hie]
-    #.    [i, ]: [hi]
-    #.    [i, e]: [hie]
-    #.    [oe]:  [oee]
-    #.    [ee]:  [oee], 
-    #     [<|eot|>, ] :  <|eot|> 
-    for i, word in enumerate(word_stats):
-        for pair in zip(word, word[1:]):
-            pair_stats.update({pair: word_stats[word]})
-            pair_to_words_index[pair] = pair_to_words_index.get(pair, set()) | {word}
-
-    vocabs = {i: bytes([i]) for i in range(256)}
-    merges: list[tuple[bytes, bytes]] = []
-    num_merges = vocab_size - len(vocabs)
+    # Main loop
+    num_merges = vocab_size - len(vocab) - len(special_tokens)
     for i in range(num_merges):
-        best_pair, count = pair_stats.most_common(1)
-        related_words = pair_to_words_index[best_pair]
+        # EARLY STOPPING: If no more pairs exist, we can't merge anymore!
+        if not pair_count:
+            print(f"No more pairs to merge. Stopping early at {i} merges.")
+            break
 
-        for rw in related_words:
-            # remove pair in rw:
-            i, nw = 0, []
-            old_pairs = []
-            while i < len(rw):
-                if i < len(rw)-1 and best_pair[0] == rw[i] and best_pair[1] == rw[i+1]:
-                    nw.append(best_pair[0] + best_pair[1])
-                    old_pairs.append({})
+        best_pair = find_most_common_pairs(pair_count)
 
-                    # TODO (dat) remove old pair from pair_stats - freq
-                    pair_to_be_removed = [tuple([rw[i], rw[i+1]])]
-                    if i+2 <= len(rw):
-                        pair_to_be_removed.append(tuple([rw[i+1], rw[i+2]]))
-                    i+=2
+        # book-keeping new pair
+        merges.append(best_pair)
+        vocab[len(vocab) + i] = bytes(best_pair[0] + best_pair[1])
+
+        seq_idx_to_be_updated = pair_to_sequences_idx[best_pair].copy()
+        for seq_idx in seq_idx_to_be_updated:
+            old_seq, frequency = tokenized_sequences[seq_idx]
+
+            # remove old pairs from pair_count and pair_reverse_idx
+            for old_pair in zip(old_seq, old_seq[1:]):
+                pair_count[old_pair] -= frequency
+                if pair_count[old_pair] == 0:
+                    pair_count.pop(old_pair)
+                pair_to_sequences_idx[old_pair].discard(seq_idx) # set operation
+
+            # generate new_seq
+            new_seq = update_sequence(old_seq, best_pair)
+
+            # find all pairs from new_seq and update to pair_count and pair_reverse_idx
+            for new_pair in zip(new_seq, new_seq[1:]):
+                if new_pair in pair_count:
+                    pair_count[new_pair] += frequency
                 else:
-                    nw.append(rw[i])
-                    i+=1
-            nw = tuple(nw) # convert to tuple because its the data type for word_stats
-            pair_to_words_index[best_pair] -= {rw}
-            pair_to_words_index[best_pair] |= {nw}
-            word_stats[nw] = word_stats.pop(rw)
+                    pair_count[new_pair] = frequency
+                pair_to_sequences_idx[new_pair].add(seq_idx)
+
+            # update  tokenized_sequences with the new_seq (same characters, different partitions)
+            tokenized_sequences[seq_idx] = (new_seq, frequency)
 
 
-            # e.g best_pair hi --> remove [h,i] and [i ]
-
-    ## main algorithm:
-    # key idea: incremental update
-    # only update pairs, and tokens that are related to pair
-    #    word_stats: {b'hi ': 3; b'oee ': 1, b'<|eot|>': 1}
-    #.   freq_stats  {[h,i]: 3, [i ]:2,  [ie]: 1, [oe]: 1, [ee]: 1, [b'<|eot|>', ]: 1]}
-    #    best_pair: [h,i]:3 
-
-    # Step words update (hi, hie):
-    # hi, freq 3
-    #   words_stas: remove b['h,'i',' ']: 2,     add b'['hi', '']: 2
-    #   freq_stats: remove [h,i]: 3, [i ]: 3,    add ['hi ']: 3
-    # hie, freq 1:
-    #   words_stas: remove b['h,'i',' e']: 1,    add b'['hi', 'e]: 1
-    #.  freq_stats: remove b['i, e']: 1          add b['hi,' e]:1
+    # special update for special tokens
     for i in range(len(special_tokens)):
-        vocabs[len(vocabs) + i] = special_tokens[i].encode("utf-8")
+        vocab[len(vocab) + i] = special_tokens[i].encode("utf-8")
 
-    return vocabs, merges
+    return vocab, merges
