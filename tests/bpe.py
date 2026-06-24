@@ -134,7 +134,6 @@ def update_sequence(seq, best_pair):
     # a a c   ----> (a,a), (a,c) deleted, add (b'aa, b'c')
     # b a a c ----> (b,a), (a, a) (a,c) deleted, add (b, 'aa') and ('aa', c)
     # insight: for every best_pair found in a seq, we need to update a left and right pair of that string
-
     while j < len(seq):
         if tuple([seq[i], seq[j]]) == best_pair:
             new_seq.append(seq[i] + seq[j])
@@ -205,7 +204,9 @@ def run_train_bpe(
                             regex_pattern: str, 
                             special_tokens: List[str]):
         """Transform corpus in to tokenized bytes-array based on a regex pattern
-        Returns: a list of [sequence: frequency]
+        Returns: an ordered list of [sequence: frequency]
+
+        NOTE: by updating middle item of a list. use linkedlink (which list may have already implemented in Python)
         """
         chunks = []
         with open(input_file, "rb") as file_io:
@@ -220,31 +221,14 @@ def run_train_bpe(
             tokenized_sequences = dict(reduce(lambda d1, d2: d1 + d2, results))
         return list(tokenized_sequences.items())
 
-        # # SEQUENTIAL PROCESSING (Multiprocessing Disabled)
-        # tokenized_sequences = collections.Counter()
-        
-        # # Process each chunk strictly in order
-        # for start, end in zip(chunks[:-1], chunks[1:]):
-        #     chunk_result = fn_process_chunk(
-        #         input_file, 
-        #         special_tokens, 
-        #         regex_pattern, 
-        #         start, 
-        #         end
-        #     )
-        #     # Combine the counts sequentially
-        #     tokenized_sequences.update(chunk_result)
-        # return list(tokenized_sequences.items())
 
     tokenized_sequences = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
 
     # [i] because bytes only accepts a list / iterable. If a number is passed, it will init an array of zero size i instead
-    vocab = {}
-    # special update for special tokens
-    for i in range(len(special_tokens)):
-        vocab[len(vocab) + i] = special_tokens[i].encode("utf-8")
+    vocab, merges = {}, []
     vocab = {i: bytes([i]) for i in range(256)}
-    merges = []
+    for i in range(len(special_tokens)):
+        vocab[len(vocab)] = special_tokens[i].encode("utf-8")
 
     pair_count = compute_pair_count(tokenized_sequences)
     pair_to_sequences_idx = compute_pair_to_sequence_idx(tokenized_sequences)
@@ -261,8 +245,9 @@ def run_train_bpe(
 
         # book-keeping new pair
         merges.append(best_pair)
-        vocab[len(vocab) + i] = bytes(best_pair[0] + best_pair[1])
+        vocab[len(vocab)] = bytes(best_pair[0] + best_pair[1])
 
+        # .copy() because pair_to_sequences_idx
         seq_idx_to_be_updated = pair_to_sequences_idx[best_pair].copy()
         for seq_idx in seq_idx_to_be_updated:
             old_seq, frequency = tokenized_sequences[seq_idx]
@@ -274,7 +259,7 @@ def run_train_bpe(
                     pair_count.pop(old_pair)
                 pair_to_sequences_idx[old_pair].discard(seq_idx) # set operation
 
-            # generate new_seq
+            # update sequence with new pair e.g (b'a',b'c',b'd') ---> (b'ab', b'd')
             new_seq = update_sequence(old_seq, best_pair)
 
             # find all pairs from new_seq and update to pair_count and pair_reverse_idx
