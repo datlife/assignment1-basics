@@ -116,10 +116,9 @@ def find_most_common_pairs(pair_count):
     """ Return the most common pairs among all tokenized sequences.
     In case of a tie-breaking pair, pick the first one
     """
-    return max(pair_count, key=pair_count.get)
-
+    # return max(pair_count, key=pair_count.get)
     # # pick one in lexicographically order.
-    # return min(pair_count, key=lambda p: (-pair_count[p], p))
+    return max(pair_count, key=lambda p: (pair_count[p], p))
 
 
 def update_sequence(seq, best_pair):
@@ -148,6 +147,7 @@ def update_sequence(seq, best_pair):
         new_seq.append(seq[i])
 
     return tuple(new_seq)
+
 
 def run_train_bpe(
     input_path: str | os.PathLike,
@@ -189,11 +189,12 @@ def run_train_bpe(
         Main loop (vocab_size - len(special_tokens))
             Find most common pair in the updated sequences.
             Record new merge and vocab
-            Update step:
-                Rewrite related sequences with the new pair (be careful of overlapping neighbors)
-                Update pair bookkeeping for changed sequences (pair_count and pair_to_idx): new pair and neighboring pairs
+            Update step: (find all sequences needed to be update)
+                Remove old pairs from pair_count and reverse index
+                Rewrite sequence with the new pair (be careful of overlapping neighbors)
+                Add new pair to pair_count and reverse_index
+                Update sequence list with new seq
         Add special tokens to the vocab
-    
     # note on utf-8:
         * for this algorithm, all operation should be in bytestring (sequence: a list of bytestring, pair_count a tuple of bytestring)
         * bytestring is an utf-8 encoded of a character. 
@@ -206,44 +207,39 @@ def run_train_bpe(
         """Transform corpus in to tokenized bytes-array based on a regex pattern
         Returns: an ordered list of [sequence: frequency]
 
-        NOTE: by updating middle item of a list. use linkedlink (which list may have already implemented in Python)
+        NOTE: by updating middle item of a list. use linked-link (which list may have already implemented in Python)
         """
         chunks = []
         with open(input_file, "rb") as file_io:
             chunk_size = 2 * mp.cpu_count() + 1
             chunks = find_chunk_boundaries(file_io, chunk_size, b"<|endoftext|>")
-        print(f"Splitted corpus into {len(chunks)} chunks")
-
-        # mapping of sequence (a list of byte objects) --> occurrences
         tokenized_sequences = {}
         with mp.Pool(mp.cpu_count()) as p:
             results = p.starmap(fn_process_chunk, zip(repeat(input_path), repeat(special_tokens), repeat(regex_pattern), chunks[:-1], chunks[1:]))
             tokenized_sequences = dict(reduce(lambda d1, d2: d1 + d2, results))
         return list(tokenized_sequences.items())
 
-
     tokenized_sequences = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
-
-    # [i] because bytes only accepts a list / iterable. If a number is passed, it will init an array of zero size i instead
     vocab, merges = {}, []
-    vocab = {i: bytes([i]) for i in range(256)}
-    for i in range(len(special_tokens)):
-        vocab[len(vocab)] = special_tokens[i].encode("utf-8")
+    # [i] because bytes only accepts a list / iterable. 
+    # If a number is passed, it will init an array of zero size i instead
+    for st in special_tokens:
+        vocab[len(vocab)] = st.encode("utf-8")
+
+    for i in range(256):
+        vocab[len(vocab)] = bytes([i])
 
     pair_count = compute_pair_count(tokenized_sequences)
     pair_to_sequences_idx = compute_pair_to_sequence_idx(tokenized_sequences)
 
-    # Main loop
-    num_merges = vocab_size - len(vocab) - len(special_tokens)
+    num_merges = vocab_size - 256 - len(special_tokens)
     for i in range(num_merges):
-        # EARLY STOPPING: If no more pairs exist, we can't merge anymore!
         if not pair_count:
             print(f"No more pairs to merge. Stopping early at {i} merges.")
             break
 
         best_pair = find_most_common_pairs(pair_count)
-
-        # book-keeping new pair
+        # print(f"Best pair: {bytes(best_pair[0] + best_pair[1])}")
         merges.append(best_pair)
         vocab[len(vocab)] = bytes(best_pair[0] + best_pair[1])
 
@@ -270,8 +266,6 @@ def run_train_bpe(
                     pair_count[new_pair] = frequency
                 pair_to_sequences_idx[new_pair].add(seq_idx)
 
-            # update  tokenized_sequences with the new_seq (same characters, different partitions)
             tokenized_sequences[seq_idx] = (new_seq, frequency)
-
 
     return vocab, merges
