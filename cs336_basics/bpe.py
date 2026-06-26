@@ -1,4 +1,6 @@
 import os
+import time
+import tqdm
 import collections
 import regex as re
 from typing import List
@@ -6,6 +8,9 @@ from itertools import repeat
 import multiprocessing as mp
 from typing import BinaryIO
 from functools import reduce
+import logging
+
+logger = logging.getLogger(__name__)
 
 def find_chunk_boundaries(
     file: BinaryIO,
@@ -210,22 +215,26 @@ def run_train_bpe(
         NOTE: by updating middle item of a list. use linked-link (which list may have already implemented in Python)
         """
         chunks = []
+        logger.debug("Starting to pre-process corpus into sequences")
         with open(input_file, "rb") as file_io:
             chunk_size = 2 * mp.cpu_count() + 1
             chunks = find_chunk_boundaries(file_io, chunk_size, b"<|endoftext|>")
+        logger.debug(f"Splitted corpus into {len(chunks) - 1} chunks using {mp.cpu_count()} cores")
+
         tokenized_sequences = {}
+        start = time.perf_counter()
         with mp.Pool(mp.cpu_count()) as p:
-            results = p.starmap(fn_process_chunk, zip(repeat(input_path), repeat(special_tokens), repeat(regex_pattern), chunks[:-1], chunks[1:]))
+            inputs = zip(repeat(input_path), repeat(special_tokens), repeat(regex_pattern), chunks[:-1], chunks[1:])
+            results = p.starmap(fn_process_chunk, inputs)
             tokenized_sequences = dict(reduce(lambda d1, d2: d1 + d2, results))
+        logger.debug(f"Processed {len(chunks) - 1 } chunks into {len(tokenized_sequences)} sequences in {time.perf_counter() - start} seconds")
+
         return list(tokenized_sequences.items())
 
     tokenized_sequences = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
-    vocab, merges = {}, []
-    # [i] because bytes only accepts a list / iterable. 
-    # If a number is passed, it will init an array of zero size i instead
-    for st in special_tokens:
-        vocab[len(vocab)] = st.encode("utf-8")
-
+    vocab: dict[int, bytes] = {}
+    merges = []
+    # use standard gpt2_bytes_to unicode instead
     for i in range(256):
         vocab[len(vocab)] = bytes([i])
 
@@ -267,5 +276,9 @@ def run_train_bpe(
                 pair_to_sequences_idx[new_pair].add(seq_idx)
 
             tokenized_sequences[seq_idx] = (new_seq, frequency)
+    # [i] because bytes only accepts a list / iterable. 
+    # If a number is passed, it will init an array of zero size i instead
+    for st in special_tokens:
+        vocab[len(vocab)] = st.encode("utf-8")
 
     return vocab, merges

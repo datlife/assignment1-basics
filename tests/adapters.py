@@ -8,7 +8,6 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-from .bpe import run_train_bpe
 
 def run_linear(
     d_in: int,
