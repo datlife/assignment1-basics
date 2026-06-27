@@ -9,10 +9,13 @@ from typing import BinaryIO
 from tqdm import tqdm
 from functools import reduce
 import logging
+from cs336_basics.constants import GPT2_REGEX_PARSER
+from cs336_basics.utils import update_sequence
 
 logger = logging.getLogger(__name__)
 # disable warning from tqdm:  DeprecationWarning: This process (pid=381428) is multi-threaded, use of fork() may lead to deadlocks in the child.
 tqdm.monitor_interval = 0
+
 def find_chunk_boundaries(
     file: BinaryIO,
     desired_num_chunks: int,
@@ -130,33 +133,7 @@ def find_most_common_pairs(pair_count):
     # # pick one in lexicographically order.
     return max(pair_count, key=lambda p: (pair_count[p], p))
 
-def update_sequence(seq, best_pair):
-    """ Update a sequence with a new pair. watch out for overlapping neighbor (e.g aaaa)
-    params:
-        seq: a tuple of bytestring 
-        best_pair: a tuple 
-    """
-    i, j = 0, 1
-    new_seq = []
-    # a a a a ----> (a,a) deleted ,       add b'aa', 'aa
-    # a a c   ----> (a,a), (a,c) deleted, add (b'aa, b'c')
-    # b a a c ----> (b,a), (a, a) (a,c) deleted, add (b, 'aa') and ('aa', c)
-    # insight: for every best_pair found in a seq, we need to update a left and right pair of that string
-    while j < len(seq):
-        if tuple([seq[i], seq[j]]) == best_pair:
-            new_seq.append(seq[i] + seq[j])
-            i += 2 
-            j += 2
-        else:
-            new_seq.append(seq[i])
-            i += 1
-            j += 1
-
-    # edge case
-    if i == len(seq) - 1:
-        new_seq.append(seq[i])
-
-    return tuple(new_seq)
+# update_sequence is imported from cs336_basics.utils
 
 def run_train_bpe(
     input_path: str | os.PathLike,
@@ -208,8 +185,6 @@ def run_train_bpe(
         * for this algorithm, all operation should be in bytestring (sequence: a list of bytestring, pair_count a tuple of bytestring)
         * bytestring is an utf-8 encoded of a character. 
     """
-    # GPT-2 ?
-    OPENAI_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
     def pre_tokenize_corpus(input_file: str | os.PathLike, 
                             regex_pattern: str, 
                             special_tokens: List[str]):
@@ -230,12 +205,11 @@ def run_train_bpe(
         inputs = zip(repeat(input_file), repeat(special_tokens), repeat(regex_pattern), chunks[:-1], chunks[1:])
         with mp.Pool(mp.cpu_count()) as p:
             results = list(tqdm(p.imap(_process_chunk_star, inputs), total=len(chunks) - 1, desc="Tokenizing chunks"))
-            # results = p.starmap(fn_process_chunk, inputs)
             tokenized_sequences = dict(reduce(lambda d1, d2: d1 + d2, results))
         logger.debug(f"Processed {len(chunks) - 1 } chunks into {len(tokenized_sequences)} sequences in {time.perf_counter() - start} seconds")
         return list(tokenized_sequences.items())
 
-    tokenized_sequences = pre_tokenize_corpus(input_path, OPENAI_PAT, special_tokens)
+    tokenized_sequences = pre_tokenize_corpus(input_path, GPT2_REGEX_PARSER, special_tokens)
     vocab: dict[int, bytes] = {}
     merges = []
     # use standard gpt2_bytes_to unicode instead
