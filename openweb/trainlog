@@ -1,0 +1,81 @@
+memory at 27k steps: 32GBS
+$ py-spy record -o profile.svg -- python train_tiny_stories.py --debug
+py-spy> Sampling process 100 times a second. Press Control-C to exit.
+
+2026-06-26 22:42:23 | INFO   | root | Starting BPE training
+2026-06-26 22:42:23 | DEBUG  | cs336_basics.train | Starting to pre-process corpus into sequences
+2026-06-26 22:42:23 | DEBUG  | cs336_basics.train | Splitted corpus into 97 chunks using 48 cores
+Tokenizing chunks:   1%|█▊                                                                                                                                                                          | 1/97 [02:00<3:12:56Tokenizing chunks:   7%|████████████▋                                                                                                                                                                  | 7/97 [02:03<19:3Tokenizing chunks:  51%|███████████████████████████████████████████████████████████████████████████████████████▉                                                                                      | 49/97 [03:08<02:0Tokenizing chunks:  52%|█████████████████████████████████████████████████████████████████████████████████████████▋                                                                                    | 50/97 [03:15<02:1Tokenizing chunks:  55%|███████████████████████████████████████████████████████████████████████████████████████████████                                                                               | 53/97 [03:16<01:5Tokenizing chunks:  56%|████████████████████████████████████████████████████████████████████████████████████████████████▊                                                                             | 54/97 [03:20<01:5Tokenizing chunks:  58%|████████████████████████████████████████████████████████████████████████████████████████████████████▍                                                                         | 56/97 [03:21<01:3Tokenizing chunks:  59%|██████████████████████████████████████████████████████████████████████████████████████████████████████▏                                                                       | 57/97 [03:24<01:3Tokenizing chunks:  60%|████████████████████████████████████████████████████████████████████████████████████████████████████████                                                                      | 58/97 [03:27<01:3Tokenizing chunks:  62%|███████████████████████████████████████████████████████████████████████████████████████████████████████████▋                                                                  | 60/97 [03:28<01:1Tokenizing chunks:  65%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████                                                             | 63/97 [03:30<00:5Tokenizing chunks:  68%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▍                                                       | 66/97 [03:31<00:3Tokenizing chunks:  71%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▊                                                  | 69/97 [03:32<00:2Tokenizing chunks:  72%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▌                                                | 70/97 [03:32<00:2Tokenizing chunks:  73%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▎                                              | 71/97 [03:33<00:2Tokenizing chunks:  74%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▏                                            | 72/97 [03:35<00:2Tokenizing chunks:  76%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▋                                         | 74/97 [03:35<00:1Tokenizing chunks:  77%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▌                                       | 75/97 [03:37<00:2Tokenizing chunks:  87%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▋                       | 84/97 [03:39<00:0Tokenizing chunks:  95%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████         | 92/97 [03:40<00:0Tokenizing chunks: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 97/97 [04:08<00:0Tokenizing chunks: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 97/97 [04:08<00:00,  2.56s/it]
+2026-06-26 22:51:43 | DEBUG  | cs336_basics.train | Processed 97 chunks into 6601893 sequences in 559.8881699709964 seconds
+2026-06-26 22:52:17 | DEBUG  | cs336_basics.train | At merge 0: Time elapsed: 0.000 seconds
+2026-06-26 22:56:36 | DEBUG  | cs336_basics.train | At merge 500: Time elapsed: 259.563 seconds
+2026-06-26 22:57:43 | DEBUG  | cs336_basics.train | At merge 1000: Time elapsed: 326.074 seconds
+2026-06-26 22:59:03 | DEBUG  | cs336_basics.train | At merge 1500: Time elapsed: 406.331 seconds
+2026-06-26 23:00:42 | DEBUG  | cs336_basics.train | At merge 2000: Time elapsed: 505.156 seconds
+2026-06-26 23:02:44 | DEBUG  | cs336_basics.train | At merge 2500: Time elapsed: 627.428 seconds
+2026-06-26 23:05:06 | DEBUG  | cs336_basics.train | At merge 3000: Time elapsed: 769.501 seconds
+2026-06-26 23:07:46 | DEBUG  | cs336_basics.train | At merge 3500: Time elapsed: 928.787 seconds
+2026-06-26 23:10:39 | DEBUG  | cs336_basics.train | At merge 4000: Time elapsed: 1102.168 seconds
+2026-06-26 23:13:57 | DEBUG  | cs336_basics.train | At merge 4500: Time elapsed: 1300.197 seconds
+2026-06-26 23:17:28 | DEBUG  | cs336_basics.train | At merge 5000: Time elapsed: 1511.174 seconds
+2026-06-26 23:21:22 | DEBUG  | cs336_basics.train | At merge 5500: Time elapsed: 1744.987 seconds
+2026-06-26 23:25:31 | DEBUG  | cs336_basics.train | At merge 6000: Time elapsed: 1993.717 seconds
+2026-06-26 23:30:03 | DEBUG  | cs336_basics.train | At merge 6500: Time elapsed: 2265.741 seconds
+2026-06-26 23:34:49 | DEBUG  | cs336_basics.train | At merge 7000: Time elapsed: 2551.924 seconds
+2026-06-26 23:39:52 | DEBUG  | cs336_basics.train | At merge 7500: Time elapsed: 2855.212 seconds
+2026-06-26 23:45:08 | DEBUG  | cs336_basics.train | At merge 8000: Time elapsed: 3171.418 seconds
+2026-06-26 23:50:18 | DEBUG  | cs336_basics.train | At merge 8500: Time elapsed: 3481.589 seconds
+2026-06-26 23:55:44 | DEBUG  | cs336_basics.train | At merge 9000: Time elapsed: 3806.739 seconds
+2026-06-27 00:01:23 | DEBUG  | cs336_basics.train | At merge 9500: Time elapsed: 4146.195 seconds
+2026-06-27 00:07:19 | DEBUG  | cs336_basics.train | At merge 10000: Time elapsed: 4502.390 seconds
+2026-06-27 00:13:33 | DEBUG  | cs336_basics.train | At merge 10500: Time elapsed: 4876.526 seconds
+2026-06-27 00:20:00 | DEBUG  | cs336_basics.train | At merge 11000: Time elapsed: 5262.761 seconds
+2026-06-27 00:26:39 | DEBUG  | cs336_basics.train | At merge 11500: Time elapsed: 5662.172 seconds
+2026-06-27 00:33:33 | DEBUG  | cs336_basics.train | At merge 12000: Time elapsed: 6076.290 seconds
+2026-06-27 00:40:42 | DEBUG  | cs336_basics.train | At merge 12500: Time elapsed: 6504.878 seconds
+2026-06-27 00:48:08 | DEBUG  | cs336_basics.train | At merge 13000: Time elapsed: 6951.610 seconds
+2026-06-27 00:55:43 | DEBUG  | cs336_basics.train | At merge 13500: Time elapsed: 7406.381 seconds
+2026-06-27 01:03:32 | DEBUG  | cs336_basics.train | At merge 14000: Time elapsed: 7875.156 seconds
+2026-06-27 01:11:32 | DEBUG  | cs336_basics.train | At merge 14500: Time elapsed: 8355.042 seconds
+2026-06-27 01:19:47 | DEBUG  | cs336_basics.train | At merge 15000: Time elapsed: 8850.322 seconds
+2026-06-27 01:28:15 | DEBUG  | cs336_basics.train | At merge 15500: Time elapsed: 9358.009 seconds
+2026-06-27 01:36:55 | DEBUG  | cs336_basics.train | At merge 16000: Time elapsed: 9877.864 seconds
+2026-06-27 01:45:46 | DEBUG  | cs336_basics.train | At merge 16500: Time elapsed: 10409.074 seconds
+2026-06-27 01:54:55 | DEBUG  | cs336_basics.train | At merge 17000: Time elapsed: 10958.041 seconds
+2026-06-27 02:04:10 | DEBUG  | cs336_basics.train | At merge 17500: Time elapsed: 11513.611 seconds
+2026-06-27 02:13:38 | DEBUG  | cs336_basics.train | At merge 18000: Time elapsed: 12081.280 seconds
+2026-06-27 02:23:16 | DEBUG  | cs336_basics.train | At merge 18500: Time elapsed: 12659.263 seconds
+2026-06-27 02:33:07 | DEBUG  | cs336_basics.train | At merge 19000: Time elapsed: 13250.401 seconds
+2026-06-27 02:43:08 | DEBUG  | cs336_basics.train | At merge 19500: Time elapsed: 13851.598 seconds
+2026-06-27 02:53:12 | DEBUG  | cs336_basics.train | At merge 20000: Time elapsed: 14455.501 seconds
+2026-06-27 03:02:45 | DEBUG  | cs336_basics.train | At merge 20500: Time elapsed: 15027.688 seconds
+2026-06-27 03:12:26 | DEBUG  | cs336_basics.train | At merge 21000: Time elapsed: 15609.100 seconds
+2026-06-27 03:22:15 | DEBUG  | cs336_basics.train | At merge 21500: Time elapsed: 16198.298 seconds
+2026-06-27 03:32:14 | DEBUG  | cs336_basics.train | At merge 22000: Time elapsed: 16797.064 seconds
+2026-06-27 03:42:22 | DEBUG  | cs336_basics.train | At merge 22500: Time elapsed: 17404.829 seconds
+2026-06-27 03:52:43 | DEBUG  | cs336_basics.train | At merge 23000: Time elapsed: 18025.994 seconds
+2026-06-27 04:03:08 | DEBUG  | cs336_basics.train | At merge 23500: Time elapsed: 18651.163 seconds
+2026-06-27 04:13:42 | DEBUG  | cs336_basics.train | At merge 24000: Time elapsed: 19284.860 seconds
+2026-06-27 04:24:25 | DEBUG  | cs336_basics.train | At merge 24500: Time elapsed: 19927.972 seconds
+2026-06-27 04:35:19 | DEBUG  | cs336_basics.train | At merge 25000: Time elapsed: 20582.217 seconds
+2026-06-27 04:46:19 | DEBUG  | cs336_basics.train | At merge 25500: Time elapsed: 21242.010 seconds
+2026-06-27 04:57:28 | DEBUG  | cs336_basics.train | At merge 26000: Time elapsed: 21910.756 seconds
+2026-06-27 05:08:46 | DEBUG  | cs336_basics.train | At merge 26500: Time elapsed: 22588.818 seconds
+2026-06-27 05:20:11 | DEBUG  | cs336_basics.train | At merge 27000: Time elapsed: 23273.892 seconds
+2026-06-27 05:31:42 | DEBUG  | cs336_basics.train | At merge 27500: Time elapsed: 23965.058 seconds
+2026-06-27 05:43:20 | DEBUG  | cs336_basics.train | At merge 28000: Time elapsed: 24663.570 seconds
+2026-06-27 05:55:07 | DEBUG  | cs336_basics.train | At merge 28500: Time elapsed: 25370.135 seconds
+2026-06-27 06:06:59 | DEBUG  | cs336_basics.train | At merge 29000: Time elapsed: 26082.549 seconds
+2026-06-27 06:19:01 | DEBUG  | cs336_basics.train | At merge 29500: Time elapsed: 26804.170 seconds
+2026-06-27 06:31:08 | DEBUG  | cs336_basics.train | At merge 30000: Time elapsed: 27531.550 seconds
+2026-06-27 06:43:23 | DEBUG  | cs336_basics.train | At merge 30500: Time elapsed: 28266.267 seconds
+2026-06-27 06:55:50 | DEBUG  | cs336_basics.train | At merge 31000: Time elapsed: 29012.665 seconds
+2026-06-27 07:08:17 | DEBUG  | cs336_basics.train | At merge 31500: Time elapsed: 29759.877 seconds
+2026-06-27 07:14:29 | INFO   | __main__ | Finished BPE training in 30726.40 seconds
+2026-06-27 07:14:29 | INFO   | __main__ | Vocab size: 32000
+2026-06-27 07:14:29 | INFO   | __main__ | Number of merges: 31743
+2026-06-27 07:14:29 | INFO   | __main__ | Longest token is : ÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤ
+
+py-spy> Stopped sampling because process exited
+py-spy> Wrote flamegraph data to 'profile.svg'. Samples: 3053404 Errors: 0
+Error: No child process (os error 10)
