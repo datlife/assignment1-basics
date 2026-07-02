@@ -8,6 +8,9 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
+from cs336_basics.model import LinearLayer
+
+device =torch.accelerator.current_accelerator()
 
 def run_linear(
     d_in: int,
@@ -27,8 +30,9 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
-
-    raise NotImplementedError
+    m = LinearLayer(d_in, d_out, "cpu", dtype=torch.float)
+    m.set_weights(weights)
+    return m(in_features)
 
 
 def run_embedding(

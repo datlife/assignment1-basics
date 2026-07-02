@@ -11,19 +11,23 @@ class LinearLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.weights = nn.Parameter(
-            torch.empty((in_features, out_features), device=device, dtype=dtype)
+            torch.empty((out_features, in_features), device=device, dtype=dtype)
         )
 
         # Xavier initialization to avoid vanishing / exploding gradients
         std = math.sqrt(2 / (in_features + out_features))
         nn.init.trunc_normal_(self.weights, mean=0.0, std=std, a=-3 * std, b=3 * std)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.matmul(x, self.weights)
+    def forward(self, x: Float[torch.Tensor, "... d_in"]) -> torch.Tensor:  # noqa: F722
+        # Paper usually writes in row vector notation y = x * W^T
+        # However, in linear algebra, write in column vector: y = W *x
+        # key idea: batching dimension comes last 
+        # return torch.matmul(x, self.weights)
+        return torch.einsum("...i,oi ->...o", x, self.weights)
 
     def set_weights(self, weights: Float[torch.Tensor, "d_out d_in"]):  # noqa: F722
         with torch.no_grad():
-            self.weights.copy_(weights.T)
+            self.weights.copy_(weights)
 
 
 class EmbeddingLayer(nn.Module):
