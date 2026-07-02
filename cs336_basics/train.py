@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 # disable warning from tqdm:  DeprecationWarning: This process (pid=381428) is multi-threaded, use of fork() may lead to deadlocks in the child.
 tqdm.monitor_interval = 0
 
+
 def find_chunk_boundaries(
     file: BinaryIO,
     desired_num_chunks: int,
@@ -25,7 +26,9 @@ def find_chunk_boundaries(
     Chunk the file into parts that can be counted independently.
     May return fewer chunks if the boundaries end up overlapping.
     """
-    assert isinstance(split_special_token, bytes), "Must represent special token as a bytestring"
+    assert isinstance(split_special_token, bytes), (
+        "Must represent special token as a bytestring"
+    )
 
     # Get total file size in bytes
     file.seek(0, os.SEEK_END)
@@ -62,25 +65,29 @@ def find_chunk_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
+
 def _process_chunk_star(args):
     """Helper method for imap to take in list of argumnents"""
     return fn_process_chunk(*args)
 
-def fn_process_chunk(filepath, special_tokens, regex_pattern, start, end) -> collections.Counter:
-    """ Process chunk file[start] - file[end] into a frequency of array bytes count
+
+def fn_process_chunk(
+    filepath, special_tokens, regex_pattern, start, end
+) -> collections.Counter:
+    """Process chunk file[start] - file[end] into a frequency of array bytes count
     e.g {b'[h, e, l, l, o]: 1, b[w, o, r, l, d]: 2}
 
     Why? so we can speed up merge. In a naive impl, we construct an array.
-    And words may repeat multiple times in a corpus, causing unnecessary scans. 
+    And words may repeat multiple times in a corpus, causing unnecessary scans.
 
     RETURN:
         sequences - a dictionary with key as a tuple of bytestring, value is number of occurrences in the corpus
 
     NOTES:
-        
+
     """
     sequences = collections.Counter()
-    special_token_regex = f"({ '|'.join(re.escape(tok) for tok in special_tokens)})"
+    special_token_regex = f"({'|'.join(re.escape(tok) for tok in special_tokens)})"
 
     with open(filepath, "rb") as file_io:
         file_io.seek(start)
@@ -94,18 +101,21 @@ def fn_process_chunk(filepath, special_tokens, regex_pattern, start, end) -> col
             else:
                 # b'hello' ---> [b'h', b'e', b'l', b'l', b'o']
                 for word in re.finditer(regex_pattern, string=c):
-                    updated_token = tuple(bytes([i]) for i in word.group().encode("utf-8"))
+                    updated_token = tuple(
+                        bytes([i]) for i in word.group().encode("utf-8")
+                    )
                     sequences[updated_token] = sequences.get(updated_token, 0) + 1
     return sequences
 
+
 def compute_pair_count(sequences):
-    """ Returns a dictionary of pair to its frequency appearing in sequences
+    """Returns a dictionary of pair to its frequency appearing in sequences
     params:
         sequences: dict[tuple of bytestring, frequency]
 
     NOTE:
         - sequence may appear 1 or more time in a corpus
-        - a pair may be overlapped in a given sequence (e.g. aaaaa) 
+        - a pair may be overlapped in a given sequence (e.g. aaaaa)
     """
     pair_count = {}
     for bytestring_tuple, frequency in sequences:
@@ -116,24 +126,27 @@ def compute_pair_count(sequences):
                 pair_count[pair] = frequency
     return pair_count
 
+
 def compute_pair_to_sequence_idx(sequences):
-    """ A convenient reversed idx to find a list of sequences to be update after a merge
-    """
-    reversed_idx = collections.defaultdict(set) # set to dedup potential sequence
+    """A convenient reversed idx to find a list of sequences to be update after a merge"""
+    reversed_idx = collections.defaultdict(set)  # set to dedup potential sequence
     for idx, (seq_key, _) in enumerate(sequences):
         for pair_tuple in zip(seq_key, seq_key[1:]):
-             reversed_idx[pair_tuple].add(idx)
+            reversed_idx[pair_tuple].add(idx)
     return reversed_idx
 
+
 def find_most_common_pairs(pair_count):
-    """ Return the most common pairs among all tokenized sequences.
+    """Return the most common pairs among all tokenized sequences.
     In case of a tie-breaking pair, pick the first one
     """
     # return max(pair_count, key=pair_count.get)
     # # pick one in lexicographically order.
     return max(pair_count, key=lambda p: (pair_count[p], p))
 
+
 # update_sequence is imported from cs336_basics.utils
+
 
 def run_train_bpe(
     input_path: str | os.PathLike,
@@ -185,9 +198,10 @@ def run_train_bpe(
         * for this algorithm, all operation should be in bytestring (sequence: a list of bytestring, pair_count a tuple of bytestring)
         * bytestring is an utf-8 encoded of a character. 
     """
-    def pre_tokenize_corpus(input_file: str | os.PathLike, 
-                            regex_pattern: str, 
-                            special_tokens: List[str]):
+
+    def pre_tokenize_corpus(
+        input_file: str | os.PathLike, regex_pattern: str, special_tokens: List[str]
+    ):
         """Transform corpus in to tokenized bytes-array based on a regex pattern
         Returns: an ordered list of [sequence: frequency]
 
@@ -198,18 +212,36 @@ def run_train_bpe(
         with open(input_file, "rb") as file_io:
             chunk_size = 2 * mp.cpu_count() + 1
             chunks = find_chunk_boundaries(file_io, chunk_size, b"<|endoftext|>")
-        logger.debug(f"Splitted corpus into {len(chunks) - 1} chunks using {mp.cpu_count()} cores")
+        logger.debug(
+            f"Splitted corpus into {len(chunks) - 1} chunks using {mp.cpu_count()} cores"
+        )
 
         tokenized_sequences = {}
         start = time.perf_counter()
-        inputs = zip(repeat(input_file), repeat(special_tokens), repeat(regex_pattern), chunks[:-1], chunks[1:])
+        inputs = zip(
+            repeat(input_file),
+            repeat(special_tokens),
+            repeat(regex_pattern),
+            chunks[:-1],
+            chunks[1:],
+        )
         with mp.Pool(mp.cpu_count()) as p:
-            results = list(tqdm(p.imap(_process_chunk_star, inputs), total=len(chunks) - 1, desc="Tokenizing chunks"))
+            results = list(
+                tqdm(
+                    p.imap(_process_chunk_star, inputs),
+                    total=len(chunks) - 1,
+                    desc="Tokenizing chunks",
+                )
+            )
             tokenized_sequences = dict(reduce(lambda d1, d2: d1 + d2, results))
-        logger.debug(f"Processed {len(chunks) - 1 } chunks into {len(tokenized_sequences)} sequences in {time.perf_counter() - start} seconds")
+        logger.debug(
+            f"Processed {len(chunks) - 1} chunks into {len(tokenized_sequences)} sequences in {time.perf_counter() - start} seconds"
+        )
         return list(tokenized_sequences.items())
 
-    tokenized_sequences = pre_tokenize_corpus(input_path, GPT2_REGEX_PARSER, special_tokens)
+    tokenized_sequences = pre_tokenize_corpus(
+        input_path, GPT2_REGEX_PARSER, special_tokens
+    )
     vocab: dict[int, bytes] = {}
     merges = []
     # use standard gpt2_bytes_to unicode instead
@@ -223,7 +255,9 @@ def run_train_bpe(
     start = time.perf_counter()
     for i in range(num_merges):
         if i % 500 == 0:
-            logger.debug(f"At merge {i}: Time elapsed: {time.perf_counter() - start:.3f} seconds")
+            logger.debug(
+                f"At merge {i}: Time elapsed: {time.perf_counter() - start:.3f} seconds"
+            )
 
         if not pair_count:
             logger.warning(f"No more pairs to merge. Stopping early at {i} merges.")
@@ -254,7 +288,7 @@ def run_train_bpe(
 
             tokenized_sequences[seq_idx] = (new_seq, frequency)
 
-    # [i] because bytes only accepts a list / iterable. 
+    # [i] because bytes only accepts a list / iterable.
     # If a number is passed, it will init an array of zero size i instead
     for st in special_tokens:
         vocab[len(vocab)] = st.encode("utf-8")

@@ -35,8 +35,8 @@
 # Unit 2: Implement Transformer Model and Training Loop
 
 ### Random Thoughts:
-* Implement Autoresearch based on new training loop
-* LLM Surgergy? can I split / combine a trained LLM to enhance its intelligence?
+* Implement Auto-Research based on new training loop
+* LLM Surgery? can I split / combine a trained LLM to enhance its intelligence?
 * LLM Needs? Go through the whole stack and identify potential business gaps
 * Explain evolution of Transformer model: from original paper to latest ideas (reasoning about identified gaps + how people solved it)
 
@@ -48,7 +48,6 @@ Expected learning experiences:
 * understanding of decoder-only pre-norm transformer block and design choices:
 * hyperparam tuning 
 * resource accounting
- * 
 
 Likely invariants:
 
@@ -56,10 +55,11 @@ Likely invariants:
 Questions before studying (? from handnotes and assignment)
 * How distribution of vocab is like?
 * What is d_model
-* What is vanishing gradient problem for deep architecture? how GLU provide linear path for gradients while retaining non-linear capabilities? (paper-ref)
+* What is vanishing gradient problem for deep architecture? 
+* how GLU provide linear path for gradients while retaining non-linear capabilities? (paper-ref)
 * How to maximize GPU utilization with torch ops
 * Row  vs Column Vectors
-* What is block-diagnomnal matrix
+* What is block-diagonal matrix
 * How did position embeddings get lost during vanilla self-attention mechanism? (https://kazemnejad.com/blog/transformer_architecture_positional_encoding/)
 
 
@@ -75,7 +75,7 @@ Useful harvested ideas go here:
 * The residual stream is the main state passed through the Transformer.
 * Attention mixes information across sequence positions.
 * The MLP transforms each token position independently.
-* Causal masking enforces autoregressive prediction.
+* Causal masking enforces auto-progressive prediction.
 * Shape invariants are the best debugging tool for Transformer implementation.
 * Most Transformer bugs are dimension, masking, or residual-order bugs.
 
@@ -109,9 +109,6 @@ Useful harvested ideas go here:
 
 
 2. Implement smallest module first.
-3. Add shape tests after each module.
-4. Implement attention without optimization first.
-5. Add causal mask test.
 6. Compose Transformer block.
 7. Compose full model.
 8. Run assignment tests.
