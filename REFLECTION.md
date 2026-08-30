@@ -1,3 +1,10 @@
+08/30/2026: 
+Embedding layer:
+* simply a lookup table of learned vectors in every llm blocks 
+* at this building block, how should I make sense of the token ID
+* implementation: 
+  * 
+
 # Unit 1: BPE Training , Tokenize
 
 ## BPE My Random Intutions
@@ -117,15 +124,44 @@ Useful harvested ideas go here:
 
 ### Bugs / failed mental models
 
-#### Bug: <short name>
+#### Bug: EmbeddingLayer.forward treated as matmul
 
 What I assumed:
+Embedding lookup is a matrix multiplication, same pattern as LinearLayer —
+tried `torch.einsum("bs,sd->bd", x, embedding_matrix)`.
 
 What happened:
+`s` was reused as a label for two different axes (`x`'s sequence_length vs.
+`embedding_matrix`'s vocab_size). Even where sizes coincidentally matched,
+einsum contracts (sums over) any shared label, so the output silently
+collapsed the sequence axis instead of preserving it — wrong shape and wrong
+values, no error raised.
 
 Corrected rule:
+Embedding is a lookup (`table[idx]`), not a contraction. Not every op in an
+LLM is matmul. Advanced/fancy indexing has its own shape rule:
+`table[idx].shape == idx.shape + table.shape[1:]` — idx's entire shape
+(any rank) is preserved and a new trailing axis (`d_model`) is appended. Every
+scalar token ID in the N-D input box gets replaced in place by its vector.
+Equivalence worth remembering: this is the same result you'd get by
+one-hot-encoding each token ID and matmul-ing against the table — indexing is
+just the fast path for that.
 
-Test added:
+Test added: `test_embedding` (existing, now passing).
+
+### Retrieval Q&A (2026-08-30)
+
+Q: Why can't `EmbeddingLayer.forward` be a `torch.matmul` of `x` against the
+embedding table?
+A: `x` holds raw integer token IDs, not one-hot vectors — there's no shared
+dimension to contract against `vocab_size`. Matmul would require reusing an
+axis label with a different meaning on each side and would sum away the
+sequence axis instead of keeping one vector per token.
+
+Q: If `idx` has shape `(batch, seq, k)` and `table` has shape
+`(vocab_size, d_model)`, what is `table[idx].shape` and why?
+A: `(batch, seq, k, d_model)`. Advanced indexing preserves `idx`'s full shape
+as-is (nothing is replaced or collapsed) and appends `table.shape[1:]`.
 
 ### Retrieval
 

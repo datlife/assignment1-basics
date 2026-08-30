@@ -8,7 +8,7 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-from cs336_basics.model import LinearLayer
+import cs336_basics.model as datmodel
 
 device =torch.accelerator.current_accelerator()
 
@@ -30,7 +30,7 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
-    m = LinearLayer(d_in, d_out, "cpu", dtype=torch.float)
+    m = datmodel.LinearLayer(d_in, d_out, "cpu", dtype=torch.float)
     m.set_weights(weights)
     return m(in_features)
 
@@ -53,8 +53,10 @@ def run_embedding(
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
-
-    raise NotImplementedError
+    m = datmodel.EmbeddingLayer(vocab_size, d_model, "cpu", dtype=torch.float)
+    m.set_weights(weights)
+    embeddings = m(token_ids)
+    return embeddings
 
 
 def run_swiglu(
