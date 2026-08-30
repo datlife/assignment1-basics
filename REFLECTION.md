@@ -1,9 +1,10 @@
-08/30/2026: 
-Embedding layer:
-* simply a lookup table of learned vectors in every llm blocks 
-* at this building block, how should I make sense of the token ID
-* implementation: 
-  * 
+# Session log
+
+Append-only, newest first — `info (YYYY-MM-DD)`. Undated entries elsewhere predate this log.
+
+* EmbeddingLayer done, `test_embedding` passing; best bug: einsum on a lookup — embedding is indexing, not contraction; next: Linear/RMSNorm (2026-08-30)
+* BPE tokenizer + training-loop work (`bpe.py`, `train.py`, `train_tiny_stories.py`) — backfilled from git (2026-07-02)
+* Ledger created; Unit 1 BPE pre-map + first intuitions — backfilled from git (2026-06-28)
 
 # Unit 1: BPE Training , Tokenize
 
@@ -85,13 +86,23 @@ Useful harvested ideas go here:
 * Causal masking enforces auto-progressive prediction.
 * Shape invariants are the best debugging tool for Transformer implementation.
 * Most Transformer bugs are dimension, masking, or residual-order bugs.
+* Embedding layer = just a lookup table of learned vectors — the input stage of every LLM (2026-08-30)
 
 ### Confusion queue
 * [ ] Distrbution of vocab. How's it related to top_p, top_K and other params in LLM
 * [ ] GPU Utilization through built-in Torch ops for elements of batch, point-wise and attention headers
-* [ ] Einsum notation
+* [ ] Einsum notation — when is it the right tool vs. not? Know it's a
+      contraction (sums over shared labels); embedding lookup turned out not
+      to need it (indexing, not contraction) — what's the general rule for
+      picking einsum vs. plain indexing/broadcast ops? (2026-08-30)
 * [ ] Why pre-norm?
 * [ ] why SwiGLU over FNN + ReLU
+* [ ] Motivation behind Xavier weight initialization — why that particular
+      scaling, and when it's the right init to reach for vs. alternatives
+      (2026-08-30)
+* [ ] What does a raw token ID *mean* at the embedding stage — how should I
+      make sense of an integer ID before it's mapped to its learned vector?
+      (2026-08-30)
 
 ### Test ideas
 
@@ -124,7 +135,7 @@ Useful harvested ideas go here:
 
 ### Bugs / failed mental models
 
-#### Bug: EmbeddingLayer.forward treated as matmul
+#### Bug: EmbeddingLayer.forward treated as matmul (2026-08-30)
 
 What I assumed:
 Embedding lookup is a matrix multiplication, same pattern as LinearLayer —
