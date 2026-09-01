@@ -73,3 +73,28 @@ class EmbeddingLayer(nn.Module):
 
         # look up ops in pytorch / numpy
         return self.embedding_matrix[x]
+
+class RMSNormLayer(nn.Module):
+    """
+
+    looking at the formula: what should be the dimension of gi so that RMSNorm(x).shape = x.shape
+    """
+    def __init__(self, d_model: int, eps: float, device, dtype: torch.dtype, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.eps = 1e-5 if eps is None else eps
+        self.d_model = d_model
+        self.learned_vector = nn.Parameter(torch.empty(size=(d_model,), device=device, dtype=dtype))
+
+    def set_weights(self, weights):
+        with torch.no_grad():
+            self.learned_vector.copy_(weights)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Process an input tensor of shape (batch_size, sequence_length, d_model) 
+        and return a tensor of the same shape.
+        """
+        in_dtype = x.dtype
+        x = x.to(torch.float32)
+        rms = torch.sqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)
+        rms_norm = torch.div(x, rms) * self.learned_vector
+        return rms_norm.to(in_dtype)

@@ -2,6 +2,7 @@
 
 Append-only, newest first — `info (YYYY-MM-DD)`. Undated entries elsewhere predate this log.
 
+* RMSNormLayer done, `test_rmsnorm` passing after a 3-step bug journey (global reduction → `mean(x)` instead of `sqrt(mean(x²))` → fixed); shape drills exposed dim/keepdim weakness — drill file at `../notes/concepts/tensor-ops.md`; next: SiLU + SwiGLU (2026-09-01)
 * EmbeddingLayer done, `test_embedding` passing; best bug: einsum on a lookup — embedding is indexing, not contraction; next: Linear/RMSNorm (2026-08-30)
 * BPE tokenizer + training-loop work (`bpe.py`, `train.py`, `train_tiny_stories.py`) — backfilled from git (2026-07-02)
 * Ledger created; Unit 1 BPE pre-map + first intuitions — backfilled from git (2026-06-28)
@@ -103,12 +104,21 @@ Useful harvested ideas go here:
 * [ ] What does a raw token ID *mean* at the embedding stage — how should I
       make sense of an integer ID before it's mapped to its learned vector?
       (2026-08-30)
+* [ ] dim vs keepdim on reductions — got the rms shape wrong twice in drills
+      (`(64,)`, then a scalar, before deriving `(4, 12, 1)`). Rule: reduction
+      kills the named axis; keepdim leaves a size-1 stub for broadcasting.
+      Practice via `../notes/concepts/tensor-ops.md` drills. (2026-09-01)
+* [ ] nn.Parameter initialization patterns — why `torch.empty` + `copy_` in
+      set_weights? When is `nn.init.*` the right tool? First RMSNorm draft
+      carried a dead `self.weights` attribute. (2026-09-01)
 
 ### Test ideas
 
 * [ ] attention probabilities sum to 1 over allowed keys
 * [ ] model behaves deterministically in eval mode
 * [ ] tiny overfit test on a small batch
+* [x] RMSNorm invariant: with g = ones, `output.pow(2).mean(-1).sqrt()` ≈ 1.0
+      for every token — used as a pre-test probe (2026-09-01)
 
 ### Implementation plan
 
@@ -160,6 +170,28 @@ just the fast path for that.
 
 Test added: `test_embedding` (existing, now passing).
 
+#### Bug: RMSNorm — three shape/semantics slips in one forward (2026-09-01)
+
+What I assumed:
+(1) `torch.sum(x**2)` would reduce per token. (2) After fixing the axes, that
+`torch.mean(x, dim=-1, keepdim=True)` was the RMS statistic.
+
+What happened:
+(1) `sum` with no `dim` reduced over ALL axes → one scalar RMS shared by the
+whole batch; output shape `(64,)` instead of `(4, 12, 64)`. (2) Dividing by
+`mean(x)` — near zero for a centered vector — blew values up ~700×. A
+misnamed variable (`x_normed` for what was really the rms) hid that the first
+draft never divided `x` by anything at all.
+
+Corrected rule:
+Unpack the layer's name right-to-left: RMS = Root of Mean of Squares —
+`sqrt(mean(x², dim=-1, keepdim=True) + eps)`, with eps INSIDE the sqrt.
+The rms is per-token `(batch, seq, 1)`; the gain g is per-feature
+`(d_model,)` — duals over the same grid. Name variables by what they hold,
+not by what comes next.
+
+Test: `test_rmsnorm` passing; invariant probe g=ones → per-token RMS ≈ 1.
+
 ### Retrieval Q&A (2026-08-30)
 
 Q: Why can't `EmbeddingLayer.forward` be a `torch.matmul` of `x` against the
@@ -173,6 +205,23 @@ Q: If `idx` has shape `(batch, seq, k)` and `table` has shape
 `(vocab_size, d_model)`, what is `table[idx].shape` and why?
 A: `(batch, seq, k, d_model)`. Advanced indexing preserves `idx`'s full shape
 as-is (nothing is replaced or collapsed) and appends `table.shape[1:]`.
+
+### Retrieval Q&A (2026-09-01)
+
+Q: In RMSNorm with input `(batch, seq, d_model)`, what are the shapes of the
+rms statistic and the gain g — and what is each "one number per"?
+A: rms is `(batch, seq, 1)` — one number per token, computed across its
+features (`keepdim` leaves the stub for broadcasting the divide). g is
+`(d_model,)` — one number per feature, shared by every token in every batch.
+
+Q: `x` has shape `(4, 12, 64)`. Shapes of `x.sum(dim=0)` and
+`x.sum(dim=0, keepdim=True)`?
+A: `(12, 64)` and `(1, 12, 64)`. A reduction kills the axis you name and
+leaves the rest; keepdim keeps a size-1 stub in its place.
+
+Q: Where does eps sit in the RMSNorm formula, and why there?
+A: Inside the sqrt — `sqrt(mean(x²) + eps)` — so the statistic can never be
+zero before you divide by it.
 
 ### Retrieval
 
