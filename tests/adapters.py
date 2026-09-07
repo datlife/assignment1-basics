@@ -406,7 +406,6 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    #silu = 1 / (1 + e^-x)
     out = in_features * torch.sigmoid(in_features)
     return out
 

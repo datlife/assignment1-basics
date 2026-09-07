@@ -2,7 +2,7 @@ import math
 import torch
 from jaxtyping import Float
 from typing import Any
-from torch import nn, func
+from torch import nn
 
 def _init_2d_weights(in_features, out_features, device, dtype):
     weights = nn.Parameter(
@@ -102,10 +102,10 @@ class RMSNormLayer(nn.Module):
         return rms_norm.to(in_dtype)
 
 class SwiGLULayer(nn.Module):
-    """ Combination of linear layer + silu 
+    """ Combination of linear layer + silu q
     """
-    def __init__(self, d_model, d_ff, device, dtype, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, d_model, d_ff, device=None, dtype=None) -> None:
+        super().__init__()
         self.w1 = _init_2d_weights(d_model, d_ff, device, dtype)
         self.w3 = _init_2d_weights(d_model, d_ff, device, dtype)
         self.w2 = _init_2d_weights(d_ff, d_model, device, dtype)
