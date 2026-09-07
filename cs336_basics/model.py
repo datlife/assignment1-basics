@@ -2,7 +2,16 @@ import math
 import torch
 from jaxtyping import Float
 from typing import Any
-from torch import nn
+from torch import nn, func
+
+def _init_2d_weights(in_features, out_features, device, dtype):
+    weights = nn.Parameter(
+        torch.empty((out_features, in_features), device=device, dtype=dtype)
+    )
+    # Xavier initialization to avoid vanishing / exploding gradients
+    std = math.sqrt(2 / (in_features + out_features))
+    nn.init.trunc_normal_(weights, mean=0.0, std=std, a=-3 * std, b=3 * std)
+    return weights
 
 
 class LinearLayer(nn.Module):
@@ -10,13 +19,7 @@ class LinearLayer(nn.Module):
         self, in_features: int, out_features: int, device=None, dtype=None
     ) -> None:
         super().__init__()
-        self.weights = nn.Parameter(
-            torch.empty((out_features, in_features), device=device, dtype=dtype)
-        )
-
-        # Xavier initialization to avoid vanishing / exploding gradients
-        std = math.sqrt(2 / (in_features + out_features))
-        nn.init.trunc_normal_(self.weights, mean=0.0, std=std, a=-3 * std, b=3 * std)
+        self.weights = _init_2d_weights(in_features, out_features, device, dtype)
 
     def forward(self, x: Float[torch.Tensor, "... d_in"]) -> torch.Tensor:  # noqa: F722
         # Paper usually writes in row vector notation y = x * W^T
@@ -28,7 +31,6 @@ class LinearLayer(nn.Module):
     def set_weights(self, weights: Float[torch.Tensor, "d_out d_in"]):  # noqa: F722
         with torch.no_grad():
             self.weights.copy_(weights)
-
 
 class EmbeddingLayer(nn.Module):
     """
@@ -98,3 +100,19 @@ class RMSNormLayer(nn.Module):
         rms = torch.sqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)
         rms_norm = torch.div(x, rms) * self.learned_vector
         return rms_norm.to(in_dtype)
+
+class SwiGLULayer(nn.Module):
+    """ Combination of linear layer + silu 
+    """
+    def __init__(self, d_model, d_ff, device, dtype, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.w1 = _init_2d_weights(d_model, d_ff, device, dtype)
+        self.w3 = _init_2d_weights(d_model, d_ff, device, dtype)
+        self.w2 = _init_2d_weights(d_ff, d_model, device, dtype)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        tmp = torch.einsum("...i,oi->...o", x, self.w1)
+        swish = tmp * torch.sigmoid(tmp)
+        point_wise = torch.mul(swish, torch.einsum("...i,oi->...o", x, self.w3))
+        swi_glu = torch.einsum("...o,io->...i",point_wise, self.w2)
+        return swi_glu

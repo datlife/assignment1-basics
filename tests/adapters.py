@@ -8,7 +8,7 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-import cs336_basics.model as datmodel
+import cs336_basics.model as model
 
 device =torch.accelerator.current_accelerator()
 
@@ -30,7 +30,7 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
-    m = datmodel.LinearLayer(d_in, d_out, "cpu", dtype=torch.float)
+    m = model.LinearLayer(d_in, d_out, "cpu", dtype=torch.float)
     m.set_weights(weights)
     return m(in_features)
 
@@ -53,7 +53,7 @@ def run_embedding(
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
-    m = datmodel.EmbeddingLayer(vocab_size, d_model, "cpu", dtype=torch.float)
+    m = model.EmbeddingLayer(vocab_size, d_model, "cpu", dtype=torch.float)
     m.set_weights(weights)
     embeddings = m(token_ids)
     return embeddings
@@ -88,7 +88,14 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+
+    swiglu = model.SwiGLULayer(d_model, d_ff, device="cpu", dtype=torch.float)
+    with torch.no_grad():
+        swiglu.w1.copy_(w1_weight)
+        swiglu.w2.copy_(w2_weight)
+        swiglu.w3.copy_(w3_weight)
+
+    return swiglu(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -383,7 +390,7 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    layer = datmodel.RMSNormLayer(d_model, eps,  device="cpu", dtype=torch.float)
+    layer = model.RMSNormLayer(d_model, eps,  device="cpu", dtype=torch.float)
     layer.set_weights(weights)
     return layer(in_features)
 
@@ -399,7 +406,9 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise NotImplementedError
+    #silu = 1 / (1 + e^-x)
+    out = in_features * torch.sigmoid(in_features)
+    return out
 
 
 def run_get_batch(
