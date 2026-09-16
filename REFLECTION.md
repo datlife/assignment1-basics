@@ -2,6 +2,8 @@
 
 Append-only, newest first — `info (YYYY-MM-DD)`. Undated entries elsewhere predate this log.
 
+* `RopeLayer` done, `test_rope` passing, committed `completed rope` — AI-assisted; high-level idea understood (rotate each adjacent pair by position × per-pair frequency), tensor mechanics (`rearrange (pair xy)`, `unbind`, `stack`, gathered cos/sin broadcast) not yet owned; no session-start drill today; next: fix the string, run drill set v3 (RoPE + einops), then softmax → attention (2026-09-16)
+* SiLU + `SwiGLULayer` done, `test_silu_matches_pytorch` and `test_swiglu` passing, committed `completed swiglu` (5/13 model tests green); best bug: SiLU written as `x / (1 + sigmoid(-x))` — confused `sigmoid(-x)` with `e^-x`; runner-up: einsum letter `o` tagged two different axes on the `w2` down-projection; drills: v1 shapes 6/6, works-or-error 11/12 (miss: elementwise `gate (1,9) * x (1,3)`); next: attention (lecture 04 unwatched) starting with softmax (2026-09-06)
 * RMSNormLayer done, `test_rmsnorm` passing after a 3-step bug journey (global reduction → `mean(x)` instead of `sqrt(mean(x²))` → fixed); shape drills exposed dim/keepdim weakness — drill file at `../notes/concepts/tensor-ops.md`; next: SiLU + SwiGLU (2026-09-01)
 * EmbeddingLayer done, `test_embedding` passing; best bug: einsum on a lookup — embedding is indexing, not contraction; next: Linear/RMSNorm (2026-08-30)
 * BPE tokenizer + training-loop work (`bpe.py`, `train.py`, `train_tiny_stories.py`) — backfilled from git (2026-07-02)
@@ -97,7 +99,29 @@ Useful harvested ideas go here:
       to need it (indexing, not contraction) — what's the general rule for
       picking einsum vs. plain indexing/broadcast ops? (2026-08-30)
 * [ ] Why pre-norm?
-* [ ] why SwiGLU over FNN + ReLU
+* [ ] RoPE mechanics, left as a code comment: what does
+      `rearrange(x, "... seq (pair xy) -> ... seq pair xy", xy=2)` followed by
+      `unbind(dim=-1)` actually do to the 64 numbers of one token? Is it the
+      same as `x[..., 0::2]`, `x[..., 1::2]`? Would `(xy pair)` pair different
+      elements? (2026-09-16)
+* [ ] RoPE: why `register_buffer(..., persistent=False)` for cos/sin instead
+      of a Parameter or recomputing per forward? What is saved in the state
+      dict and what is not? (2026-09-16)
+* [ ] RoPE: the gathered `cos` is `(..., seq, pair)` and `x0` is
+      `(..., seq, pair)` — write the right-aligned columns. What if
+      `token_positions` is `(seq,)` instead of `(batch, seq)`? (2026-09-16)
+* [ ] einops `einsum`/`rearrange`/`reduce`: I can read them, not write them
+      cold. When is `rearrange` a view vs a copy? (2026-09-16)
+* [ ] Why does rotating q and k by position make `q·k` depend only on the
+      *relative* position? Derive for one pair on paper. (2026-09-16)
+* [ ] why SwiGLU over FNN + ReLU — refresher received 2026-09-06 (gate decouples
+      "whether to pass" from "what to pass"; content branch stays linear so the
+      gradient path is only scaled, never squashed; Shazeer 2020 offers no
+      mechanistic explanation). Still to do: write the answer in my own words.
+* [ ] einsum letter discipline — when is it safe to reuse `i`/`o` across lines
+      of one forward? Rule for now: name axes by what they are (`m`, `f`) so a
+      letter can never tag the wrong side of a stored `(out, in)` weight.
+      (2026-09-06)
 * [ ] Motivation behind Xavier weight initialization — why that particular
       scaling, and when it's the right init to reach for vs. alternatives
       (2026-08-30)
@@ -117,8 +141,9 @@ Useful harvested ideas go here:
 * [ ] attention probabilities sum to 1 over allowed keys
 * [ ] model behaves deterministically in eval mode
 * [ ] tiny overfit test on a small batch
-* [x] RMSNorm invariant: with g = ones, `output.pow(2).mean(-1).sqrt()` ≈ 1.0
-      for every token — used as a pre-test probe (2026-09-01)
+* [ ] softmax rows sum to 1 along the chosen dim — `x.softmax(-1).sum(-1)` was
+      all ones in the 2026-09-05 drill; reuse as the first attention probe.
+      (2026-09-06)
 
 ### Implementation plan
 
@@ -142,6 +167,22 @@ Useful harvested ideas go here:
 8. Run assignment tests.
 9. Add tiny overfit experiment if useful.
 10. Write retrieval summary.
+
+### Design decisions (why not)
+
+* RoPE precomputes `cos`/`sin` once in `__init__` as non-persistent buffers
+  (2026-09-16, AI-assisted). Why: no per-forward trig, tables move with
+  `.to(device)` like parameters but are not trained and not checkpointed.
+  Why not compute per forward: cost every step for a table that depends only
+  on `max_seq_len`, `d_k`, `theta`. Understood at the level of "what", not
+  yet "why it must be a buffer" — see confusion queue.
+* SwiGLU holds three raw `nn.Parameter`s via `_init_2d_weights` instead of
+  three `LinearLayer` submodules (2026-09-06). Why: one shared init helper,
+  flat state dict (`w1`, `w2`, `w3`). Why not submodules: they would have
+  given the forward as three layer calls and reused `set_weights` (with its
+  `no_grad`), which is exactly where two of today's bugs came from. Revisit
+  when building the Transformer block — whichever layout the block uses for
+  attention projections should win for consistency.
 
 ### Bugs / failed mental models
 
@@ -192,6 +233,25 @@ not by what comes next.
 
 Test: `test_rmsnorm` passing; invariant probe g=ones → per-token RMS ≈ 1.
 
+#### Bug: SiLU as `x / (1 + sigmoid(-x))` (2026-09-06)
+
+What I assumed:
+`torch.sigmoid(-x)` is `e^-x`, so `x / (1 + sigmoid(-x))` is `x / (1 + e^-x)`.
+The comment above the code also labeled the *sigmoid* formula "silu".
+
+What happened:
+All 10 elements mismatched by up to 0.06; the test compared against
+`F.silu`. `sigmoid(-x)` is `1 / (1 + e^x)`, a number in (0, 1), not `e^-x`.
+
+Corrected rule:
+SiLU is `x * sigmoid(x)` — "x, gated by its own sigmoid". Before running,
+check the tails: SiLU(large negative) ≈ 0, SiLU(large positive) ≈ x,
+SiLU(0) = 0. The wrong version returns `x / 2` for large negative x. Write
+the comment *after* the code passes, and make it say what the code does.
+
+Test: `test_silu_matches_pytorch` passing.
+
+
 ### Retrieval Q&A (2026-08-30)
 
 Q: Why can't `EmbeddingLayer.forward` be a `torch.matmul` of `x` against the
@@ -222,6 +282,41 @@ leaves the rest; keepdim keeps a size-1 stub in its place.
 Q: Where does eps sit in the RMSNorm formula, and why there?
 A: Inside the sqrt — `sqrt(mean(x²) + eps)` — so the statistic can never be
 zero before you divide by it.
+
+### Retrieval Q&A (2026-09-06)
+
+Q: Write SiLU in words and give the three tail checks.
+A: `x` times `sigmoid(x)` — x gated by its own sigmoid. SiLU(0) = 0;
+SiLU(x) ≈ x for large positive x; SiLU(x) ≈ 0 for large negative x (the
+`sigmoid(-x)` bug returned `x / 2` there).
+
+
+Q: For `x` of shape `(4, 12, 3)` and gate `g` of shape `(4, 12, 9)`, does
+`g * x` work?
+A: No. Right-align: 9 vs 3, neither is 1. Gate and content live in `d_ff`
+space; `x` lives in `d_model` space. Elementwise ops need the same
+right-alignment check as matmul, and "one number per what?" on both sides.
+
+### Retrieval Q&A (2026-09-16)
+
+Q: `x` is `(4, 12, 64)`. Shape after
+`rearrange(x, "... seq (pair xy) -> ... seq pair xy", xy=2)`, and which two
+elements of a token end up in pair 0?
+A: `(4, 12, 32, 2)`. The last axis is split with `xy` fastest, so pair 0 holds
+elements 0 and 1, pair 1 holds 2 and 3 — adjacent pairing. `(xy pair)` would
+instead pair element 0 with element 32 (the halves convention).
+
+Q: The RoPE angle table is `(max_seq_len, d_k/2)`. What is
+`table[token_positions].shape` for `token_positions` of shape `(4, 12)`, and
+why does it broadcast against `x0`?
+A: `(4, 12, 32)` — the embedding lookup rule, `idx.shape + table.shape[1:]`.
+`x0` is also `(4, 12, 32)` (one number per token per pair), so the elementwise
+rotation lines up column for column with no stub needed.
+
+Q: In one sentence, what does RoPE do to a query vector and why to keys too?
+A: It rotates each adjacent coordinate pair by `position × frequency[pair]`;
+applying the same rotation to keys makes `q·k` depend only on the distance
+between the two positions, so attention scores carry relative position.
 
 ### Retrieval
 
