@@ -212,7 +212,9 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    rope = model.RopeLayer(theta=theta, d_k=d_k, max_seq_len=max_seq_len)
+    rotated__query_or_key = rope(in_query_or_key, token_positions)
+    return rotated__query_or_key
 
 
 def run_transformer_block(

@@ -3,6 +3,7 @@ import torch
 from jaxtyping import Float
 from typing import Any
 from torch import nn
+from einops import einsum, rearrange
 
 def _init_2d_weights(in_features, out_features, device, dtype):
     weights = nn.Parameter(
@@ -77,7 +78,7 @@ class EmbeddingLayer(nn.Module):
         return self.embedding_matrix[x]
 
 class RMSNormLayer(nn.Module):
-    """
+    """ Key idea: layer normalization
 
     looking at the formula: what should be the dimension of gi so that RMSNorm(x).shape = x.shape
     """
@@ -102,7 +103,10 @@ class RMSNormLayer(nn.Module):
         return rms_norm.to(in_dtype)
 
 class SwiGLULayer(nn.Module):
-    """ Combination of linear layer + silu q
+    """ key idea: avoid vanishing graidents while providing linear path for gradients while retaining
+    non-linear capabilities
+    Point-wise feed fowrard
+    Y =  (Swi(W1x) pointwise (W3x))W2
     """
     def __init__(self, d_model, d_ff, device=None, dtype=None) -> None:
         super().__init__()
@@ -114,5 +118,56 @@ class SwiGLULayer(nn.Module):
         tmp = torch.einsum("...i,oi->...o", x, self.w1)
         swish = tmp * torch.sigmoid(tmp)
         point_wise = torch.mul(swish, torch.einsum("...i,oi->...o", x, self.w3))
-        swi_glu = torch.einsum("...o,io->...i",point_wise, self.w2)
+        swi_glu = torch.einsum(".   ..o,io->...i",point_wise, self.w2)
         return swi_glu
+
+class RopeLayer(nn.Module):
+    # AI helpd. 
+    # Open questions:
+    #.  1. Confusing operation
+    #    pairs = rearrange(x, "... seq (pair xy) -> ... seq pair xy", xy=2)
+    #    x0, x1 = pairs.unbind(dim=-1)
+    def __init__(
+        self, theta: float, d_k: int, max_seq_len: int, device=None
+    ) -> None:
+        super().__init__()
+        self.theta = theta
+        self.d_k = d_k
+        self.max_seq_len = max_seq_len
+
+        # Each coordinate pair has its own rotation frequency.
+        # (pair 1, pair 2,... pair (d_k//2)th )
+        coordinate_pairs = torch.arange(d_k // 2, dtype=torch.float32, device=device)
+        rotation_frequencies = theta ** (-2 * coordinate_pairs / d_k)  # (,)
+        # (0, 1, .... max_seq_len -1 )
+        positions = torch.arange(max_seq_len, dtype=torch.float32, device=device)
+
+        # Outer product: angle[position, pair] = position * rotation_frequencies[pair].
+        angles = einsum(positions, rotation_frequencies, "seq, pair -> seq pair")
+
+        # https://discuss.pytorch.org/t/what-does-register-buffer-do/121091
+        self.register_buffer("cosines", angles.cos(), persistent=False)
+        self.register_buffer("sines", angles.sin(), persistent=False)
+
+    def forward(
+        self, x: torch.Tensor, token_positions: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        x: (..., seq_len, d_k)
+        token_positions: integers broadcastable to x.shape[:-1],
+                         with values in [0, max_seq_len).
+        Returns the same shape and dtype as x.
+        """
+        # (..., seq, pair)
+        cos = self.cosines[token_positions]  # type: ignore # 
+        sin = self.sines[token_positions] # type: ignore
+
+        # Expose adjacent pairs; use at least float32 for arithmetic.
+        # work_dtype = torch.promote_types(x.dtype, torch.float32)
+        pairs = rearrange(x, "... seq (pair xy) -> ... seq pair xy", xy=2)
+        x0, x1 = pairs.unbind(dim=-1)
+
+        # 2D rotation independently to every pair.
+        rotated = torch.stack((x0 * cos - x1 * sin, x0 * sin + x1 * cos), dim=-1,)
+
+        return rearrange(rotated, "... seq pair xy -> ... seq (pair xy)").to(x.dtype)
