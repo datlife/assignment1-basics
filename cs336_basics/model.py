@@ -118,7 +118,7 @@ class SwiGLULayer(nn.Module):
         tmp = torch.einsum("...i,oi->...o", x, self.w1)
         swish = tmp * torch.sigmoid(tmp)
         point_wise = torch.mul(swish, torch.einsum("...i,oi->...o", x, self.w3))
-        swi_glu = torch.einsum(".   ..o,io->...i",point_wise, self.w2)
+        swi_glu = torch.einsum("...o,io->...i",point_wise, self.w2)
         return swi_glu
 
 class RopeLayer(nn.Module):
