@@ -9,6 +9,8 @@ import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 import cs336_basics.model as model
+from einops import einsum, rearrange
+import math
 
 device =torch.accelerator.current_accelerator()
 
@@ -116,7 +118,16 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    d_k = K.shape[-1]
+    scores = einsum(Q, K, "... queries d_k, ... keys d_k -> ... queries keys") / math.sqrt(d_k)
+
+    # invert of future_mask because we want to set opposite of torch tril (False --> -float(inf))
+    # future_mask = torch.tril(torch.ones((d_k, d_k))).bool()
+    if mask is not None:
+        scores = scores.masked_fill(~mask, -float("inf"))
+    weights = torch.softmax(scores, dim=-1)
+    attention = einsum(weights ,V, "... queries keys, ... keys dv -> ...   queries dv")
+    return attention
 
 
 def run_multihead_self_attention(
@@ -150,7 +161,28 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_model"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    # Doesn't work because einops doesn't understand (3 d_model)
+    # w_qkv = rearrange([q_proj_weight, k_proj_weight, v_proj_weight], 
+    #                   "... d_model d_model, ... d_model d_model, ... d_model d_model -> ... (3 d_model) d_model")
+
+    # Fused Trick
+    w_qkv = torch.concat((q_proj_weight, k_proj_weight, v_proj_weight), dim=0) # (... 3d_model, d_model)
+    qkv_proj = einsum(in_features, w_qkv, "... S d_model, ... o d_model -> ... S o")
+
+    # Split back before SDPA
+    Q, K, V = qkv_proj.split(d_model, dim=-1) # (... S, h*d_k)
+
+    # Prep for SDPA
+    seq_len = in_features.shape[-2]
+    mask = torch.tril(torch.ones((seq_len, seq_len), dtype=torch.bool))
+    Q = rearrange(Q, "... S (h d_k) -> ... h S d_k", h=num_heads)
+    K = rearrange(K, "... S (h d_k) -> ... h S d_k", h=num_heads)
+    V = rearrange(V, "... S (h d_k) -> ... h S d_k", h=num_heads)
+
+    score = run_scaled_dot_product_attention(Q, K, V, mask)
+    score = rearrange(score, "... h S d_k -> ... S (h d_k)", h=num_heads)
+    output = einsum(score, o_proj_weight, "... S d_model, ... d_out d_model -> ... S d_out")
+    return output
 
 
 def run_multihead_self_attention_with_rope(
@@ -190,8 +222,32 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_model"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+   # Fused Trick
+    w_qkv = torch.concat((q_proj_weight, k_proj_weight, v_proj_weight), dim=0) # (... 3d_model, d_model)
+    qkv_proj = einsum(in_features, w_qkv, "... S d_model, ... o d_model -> ... S o")
 
+    # Split back before SDPA
+    Q, K, V = qkv_proj.split(d_model, dim=-1) # (... S, h*d_k)
+
+    # Prep for SDPA
+    seq_len = in_features.shape[-2]
+    mask = torch.tril(torch.ones((seq_len, seq_len), dtype=torch.bool))
+    Q = rearrange(Q, "... S (h d_k) -> ... h S d_k", h=num_heads)
+    K = rearrange(K, "... S (h d_k) -> ... h S d_k", h=num_heads)
+    V = rearrange(V, "... S (h d_k) -> ... h S d_k", h=num_heads)
+
+    d_k = Q.shape[-1]
+    Q_rope = run_rope(d_k=d_k, theta=theta, max_seq_len=max_seq_len, 
+                      in_query_or_key=Q, 
+                      token_positions=token_positions)
+
+    K_rope = run_rope(d_k=d_k, theta=theta, max_seq_len=max_seq_len, 
+                      in_query_or_key=K, 
+                      token_positions=token_positions)
+    score = run_scaled_dot_product_attention(Q_rope, K_rope, V, mask)
+    score = rearrange(score, "... h S d_k -> ... S (h d_k)", h=num_heads)
+    output = einsum(score, o_proj_weight, "... S d_model, ... d_out d_model -> ... S d_out")
+    return output
 
 def run_rope(
     d_k: int,
@@ -287,6 +343,19 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
+    q_project_weight = weights['attn']['q_proj']['weight'] # type: ignore
+    k_project_weight = weights['attn']['k_proj']['weight'] # type: ignore
+    v_project_weight = weights['attn']['v_proj']['weight'] # type: ignore
+    o_project_weight = weights['attn']['o_proj']['weight'] # type: ignore
+
+    pre_norm = run_rmsnorm(d_model)
+    output = run_multihead_self_attention_with_rope(
+        d_model, 
+        num_heads, 
+        max_seq_len, 
+        theta, q_project_weight, k_project_weight,v_project_weight, o_project_weight, 
+        in_features)
+    model.RMSNormLayer()
     raise NotImplementedError
 
 
